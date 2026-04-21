@@ -43,7 +43,7 @@
     <form id="enter-form">
       <div class="field">
         <label class="field-label">Naam</label>
-        <input id="f-name" class="input" placeholder="bv. Storm Tromp" autocomplete="username" required>
+        <input id="f-name" class="input" placeholder="bv. StormTromp" autocomplete="username" required>
       </div>
       <div class="field">
         <label class="field-label">Wachtwoord</label>
@@ -68,6 +68,12 @@
 <script src="js/api.js"></script>
 <script src="js/utils.js"></script>
 <script>
+  document.getElementById('f-name').addEventListener('input', (e) => {
+    const cur = e.target.selectionStart;
+    e.target.value = e.target.value.replace(/\s/g, '');
+    e.target.setSelectionRange(cur, cur);
+  });
+
   document.getElementById('enter-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = document.getElementById('f-name').value.trim();

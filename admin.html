@@ -129,7 +129,7 @@
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
             <div class="field" style="margin-bottom:0">
               <label class="field-label">Naam</label>
-              <input id="u-name" class="input" placeholder="bv. Storm Tromp" required>
+              <input id="u-name" class="input" placeholder="bv. StormTromp" required>
             </div>
             <div class="field" style="margin-bottom:0">
               <label class="field-label">Rol</label>
@@ -358,6 +358,13 @@
     if (!iso) return '—';
     return new Date(iso).toLocaleDateString('nl-NL', { day:'numeric', month:'short', year:'numeric' });
   }
+
+  // Strip spaces as you type in the name field
+  document.getElementById('u-name').addEventListener('input', (e) => {
+    const cur = e.target.selectionStart;
+    e.target.value = e.target.value.replace(/\s/g, '');
+    e.target.setSelectionRange(cur, cur);
+  });
 
   // ---- Boot ----
   isLoggedIn() ? showDashboard() : showLogin();

@@ -25,7 +25,7 @@
       const { data, error } = await db()
         .from('users')
         .select('*')
-        .eq('full_name', full_name)
+        .ilike('full_name', full_name)
         .eq('password_hash', hash)
         .maybeSingle();
       guard(error);
@@ -114,8 +114,7 @@
       const { data, error } = await db()
         .from('feedback_responses')
         .select('*')
-        .eq('session_code', code)
-        .order('submitted_at', { ascending: true });
+        .eq('session_code', code);
       guard(error);
       return data;
     },
@@ -148,7 +147,7 @@
     async patchResponse(id, patch) {
       const { data, error } = await db()
         .from('feedback_responses')
-        .update({ ...patch, submitted_at: new Date().toISOString() })
+        .update(patch)
         .eq('id', id)
         .select()
         .single();

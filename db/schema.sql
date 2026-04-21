@@ -16,8 +16,9 @@ create table if not exists users (
   updated_at    timestamptz default now()
 );
 
--- Als de tabel al bestaat, voeg de kolom toe:
--- alter table users add column if not exists password_hash text;
+-- Migratie: kolommen toevoegen als de tabel al bestaat
+alter table users add column if not exists password_hash text;
+alter table feedback_responses add column if not exists submitted_at timestamptz default now();
 
 -- ---- 2. FEEDBACK SESSIONS ----------------------------------
 create table if not exists feedback_sessions (
