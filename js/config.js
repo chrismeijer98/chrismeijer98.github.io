@@ -1,10 +1,7 @@
 // ============================================================
-// Lokale configuratie
-// ------------------------------------------------------------
-// Deze site draait volledig lokaal — alle data staat in
-// localStorage van je browser. Geen server, geen account.
-// Zie db/schema.sql voor het datamodel (referentie).
+// Supabase configuratie
 // ============================================================
 window.HOP_CONFIG = {
-  STORAGE_PREFIX: 'hop.',
+  SUPABASE_URL:      'https://dwpncxqfcfgzdekpqwpc.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_pJ3ZrYzdhOVNEgmaNkLGrg_UPWRNtXa',
 };

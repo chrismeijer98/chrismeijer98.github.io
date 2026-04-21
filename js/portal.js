@@ -323,7 +323,7 @@
   // FEEDBACK MODULE — hub, new, manage
   // ==========================================================
   async function renderFeedback() {
-    const [, , sub, code] = (location.hash || '').split('/');
+    const [, sub, code] = (location.hash || '').split('/');
     // feedback/new            -> new session
     // feedback/manage/CODE    -> manage + responses
     if (sub === 'new')    return renderNewSession();
