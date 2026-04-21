@@ -1,115 +1,110 @@
 # House of Pilots — Career Portal
 
-Een volledig lokale, statische webapp (HTML/CSS/JS) die het Pilot Career
-Plan (PCP) en de 360° feedback samenbrengt. Alle data wordt opgeslagen in
-de **localStorage** van de browser — geen server, geen database, geen
-account nodig. Je opent gewoon `index.html`.
+Een statische webapp (HTML/CSS/JS) voor het Pilot Career Plan (PCP) en 360°
+feedback. Data wordt opgeslagen in **Supabase** (PostgreSQL) en de site wordt
+gehost via **GitHub Pages** — geen eigen server nodig.
 
 ## Structuur
 
 ```
-site/
-├─ index.html            Landing + inloggen (naam + rol)
+├─ index.html            Login (naam + wachtwoord)
 ├─ portal.html           Dashboard · PCP · 360° Feedback hub
 ├─ feedback.html         Publieke feedback-pagina (respondent met code)
 ├─ report.html           Rapport + PDF-print
+├─ admin.html            Beheerportaal (gebruikers + wachtwoorden beheren)
 ├─ css/style.css         Shared stylesheet
 ├─ js/
-│  ├─ config.js          Lokale config (prefix voor localStorage keys)
-│  ├─ api.js             localStorage-gebaseerde "backend" (CRUD)
+│  ├─ config.js          Supabase URL + anon-sleutel
+│  ├─ api.js             Supabase-gebaseerde backend (CRUD + auth)
 │  ├─ data.js            Competenties + feedback thema's
 │  ├─ utils.js           DOM-helpers, icons
-│  ├─ portal.js          Portal logica (tabs, PCP, hub)
+│  ├─ portal.js          Portal logica (tabs, PCP, feedback hub)
 │  ├─ feedback.js        Respondent flow (identity → filling → done)
 │  └─ report.js          Rapportopbouw + radar chart
 └─ db/
-   └─ schema.sql         Datamodel ter referentie (niet uitgevoerd)
+   └─ schema.sql         PostgreSQL schema voor Supabase
 ```
 
-## Starten
+## Instellen (eenmalig)
 
-Dubbelklik op **`index.html`** — klaar. De site werkt volledig via `file://`.
+### 1. Supabase database aanmaken
 
-Alle data blijft in de browser bewaard (localStorage). Wis je
-browserdata, dan begin je opnieuw.
+1. Maak een project aan op [supabase.com](https://supabase.com).
+2. Ga naar **SQL Editor → New query**, plak de inhoud van [`db/schema.sql`](db/schema.sql) en voer het uit.
+3. Kopieer je **Project URL** en **Publishable (anon) key** via **Project Settings → API**.
 
-> Wil je het via een lokale server draaien (handig voor testen op andere
-> apparaten op je netwerk)? Ieder static-file-servertje werkt, bv.
-> `npx serve site/` of een VS Code "Live Server"-extensie.
+### 2. Verbinding instellen
+
+Vul de gegevens in in [`js/config.js`](js/config.js):
+
+```js
+window.HOP_CONFIG = {
+  SUPABASE_URL:      'https://jouw-project-id.supabase.co',
+  SUPABASE_ANON_KEY: 'jouw-anon-sleutel',
+};
+```
+
+### 3. Eerste gebruiker aanmaken
+
+1. Open `admin.html` (of de live GitHub Pages URL + `/admin.html`).
+2. Log in met `admin` / `admin`.
+3. Maak de eerste piloot- en coachaccounts aan via het beheerportaal.
 
 ## Gebruik
 
-### Voor de piloot / coach (portal)
+### Beheerder (`admin.html`)
 
-1. Open `index.html`, vul naam in en kies **Piloot** of **Coach**.
-2. In het portal heb je drie tabs:
-   - **Dashboard** — voortgang van je competentieprofiel en feedbacksessies.
-   - **PCP — Competenties** — scoor kern-, primaire, persoonlijke en
-     relationele competenties. Auto-save naar localStorage. Coach kan
-     dezelfde competenties scoren; beide scores staan naast elkaar.
-   - **360° Feedback** — maak een feedbacksessie aan met een unieke code,
-     zie wie al heeft ingevuld, open het rapport.
+- Inloggen: gebruikersnaam `admin`, wachtwoord `admin`.
+- **Gebruikers aanmaken** — naam, rol (Piloot / Coach) en wachtwoord instellen.
+- **Wachtwoord wijzigen** — klik op de sleutelknop naast een gebruiker.
+- **Gebruiker verwijderen** — via de verwijderknop in de lijst.
 
-### Voor feedbackgevers
+### Piloot / Coach (`index.html` → `portal.html`)
 
-1. Ontvangen een link of code van de piloot (bv. `ST-4F7K`).
-2. Openen `feedback.html?code=ST-4F7K` (of voeren de code in op `feedback.html`).
-3. Vullen naam + relatie in, doorlopen 11 thema's.
-4. Klaar — piloot ziet direct in portal dat feedback is binnen.
+1. Open `index.html`, vul naam en wachtwoord in (aangemaakt door beheerder).
+2. In het portal zijn drie tabs:
+   - **Dashboard** — voortgang competentieprofiel en feedbacksessies.
+   - **PCP — Competenties** — scoor kern-, primaire, persoonlijke en relationele
+     competenties. Auto-save. Coach en piloot scoren onafhankelijk; beide scores
+     staan naast elkaar.
+   - **360° Feedback** — maak een feedbacksessie aan met unieke code, deel die
+     met feedbackgevers, bekijk wie heeft ingevuld, open het rapport.
 
-> **Let op:** omdat alles lokaal in de browser staat, moeten feedbackgevers
-> de site vanaf **dezelfde browser/machine** gebruiken als de piloot.
-> Wil je dit echt op afstand doen, dan heb je een gedeelde backend nodig
-> (zie "Naar een echte database" hieronder).
+### Feedbackgevers (`feedback.html`)
 
-### Rapport
+1. Ontvang een link of code van de piloot (bv. `ST-4F7K`).
+2. Open `feedback.html?code=ST-4F7K` of voer de code in op `feedback.html`.
+3. Vul naam + relatie in en doorloop de 11 feedback-thema's.
+4. Na verzenden ziet de piloot direct in het portal dat de feedback is binnen.
 
-- Wanneer minimaal één zelfreflectie + enkele feedbackgevers ingevuld hebben,
-  opent de piloot **"Rapport bekijken"** in de sessie-detailpagina.
-- Dit rendert cover, overzicht, samenvattingsbalken, radar (situatieschets)
-  en één pagina per thema.
-- `Cmd/Ctrl + P` → opslaan als PDF. CSS `@media print` zorgt voor pagina-breaks.
+### Rapport (`report.html`)
+
+- Open via **"Rapport bekijken"** in de sessie-detailpagina (minimaal 1
+  zelfreflectie + enkele feedbackgevers aanbevolen).
+- Bevat: cover, overzicht, samenvattingsbalken, radar (situatieschets) en een
+  pagina per thema.
+- `Cmd/Ctrl + P` → opslaan als PDF.
 
 ## Datamodel
 
-De app werkt met vier logische "tabellen", opgeslagen als JSON-arrays in
-localStorage:
+Vier tabellen in Supabase (PostgreSQL):
 
-| localStorage key          | Velden (kern)                                                                                                         |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `hop.users`               | id · full_name · email · role (`pilot`/`coach`)                                                                        |
-| `hop.feedback_sessions`   | code (PK) · subject_name · subject_role · owner_id → users                                                             |
-| `hop.feedback_responses`  | id · session_code → sessions · respondent_name · respondent_role · is_self · ratings · notes                           |
-| `hop.pcp_scores`          | id · user_id → users · scored_by (`pilot`/`coach`) · competence_id · value 1-5 · note                                  |
+| Tabel                   | Kernvelden                                                                                          |
+|-------------------------|-----------------------------------------------------------------------------------------------------|
+| `users`                 | id · full_name · role (`pilot`/`coach`) · password_hash · created_at                               |
+| `feedback_sessions`     | code (PK) · subject_name · subject_role · owner_id → users                                         |
+| `feedback_responses`    | id · session_code → sessions · respondent_name · respondent_role · is_self · ratings (jsonb) · notes (jsonb) |
+| `pcp_scores`            | id · user_id → users · scored_by · competence_id · value 1–5 · note                                |
 
-`ratings` heeft als sleutels `{themaKey}_{stellingIndex}` (bv. `stabiliteit_0`).
-`notes` heeft als sleutels themaKeys (bv. `leiderschap`).
+Wachtwoorden worden opgeslagen als SHA-256 hash (via Web Crypto API, client-side).
 
-Zie [`db/schema.sql`](db/schema.sql) voor het equivalente SQL-schema (als
-referentie of vertrekpunt voor migratie).
+## Beveiliging
 
-## Data exporteren / importeren
-
-Via de browser-console kun je bij alle data:
-
-```js
-// Alles exporteren als JSON:
-copy(JSON.stringify(HopApi.exportAll(), null, 2));
-
-// Eerder geëxporteerde data terugzetten:
-HopApi.importAll(JSON.parse(theJsonString));
-
-// Alles wissen:
-HopApi.clearAll();
-```
-
-## Naar een echte database
-
-Wil je later delen tussen meerdere browsers/gebruikers? Vervang dan alleen
-`js/api.js` door een implementatie die dezelfde methodes (`findOrCreateUser`,
-`createSession`, `listSessions`, `postResponse`, `patchResponse`, `listScores`,
-`upsertScore`, etc.) aanroept op een echte backend. Het datamodel in
-`db/schema.sql` is daarvoor direct bruikbaar.
+- De Supabase **anon-sleutel** zit in de client-side code — dit is bedoeld voor
+  publieke sleutels. Row Level Security (RLS) staat aan voor alle tabellen met
+  open anon-policies, passend bij dit interne tool.
+- Admin-login (`admin` / `admin`) is hardcoded in `admin.html`. Wijzig dit voor
+  gebruik in productie.
 
 ## Licentie
 
