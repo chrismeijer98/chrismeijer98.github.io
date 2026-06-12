@@ -17,11 +17,9 @@
   });
 
   function updateRoleUI() {
-    qsa('#role-pilot,#role-coach').forEach((b) => {
-      b.classList.toggle('active', b.dataset.role === session.role);
-    });
-    const card = qs('#role-card');
     const isCoach = session.role === 'coach';
+    qs('#role-badge').innerHTML = `${isCoach ? ICONS.coach : ICONS.user}${isCoach ? 'Coach' : 'Piloot'}`;
+    const card = qs('#role-card');
     card.style.background = isCoach ? 'rgba(229,107,62,.1)' : 'rgba(30,74,122,.1)';
     card.style.borderColor = isCoach ? 'rgba(229,107,62,.3)' : 'rgba(30,74,122,.2)';
     card.innerHTML = `
@@ -35,14 +33,6 @@
         ${isCoach ? 'Je scoort en ziet mee, voegt notities toe.' : 'Jouw zelfbeoordeling. Coach kan meekijken.'}
       </div>`;
   }
-  qsa('.role-btn[data-role]').forEach((b) => {
-    b.addEventListener('click', () => {
-      session.role = b.dataset.role;
-      HopSession.set(session);
-      updateRoleUI();
-      renderActiveTab();
-    });
-  });
   updateRoleUI();
 
   // --------------------------------------------------------
