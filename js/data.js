@@ -214,3 +214,27 @@ window.FEEDBACK_THEMES = [
 ];
 
 window.FB_SCALE_LABELS = ['(Bijna) nooit', 'Soms', 'Regelmatig', 'Vaak', '(Bijna) altijd'];
+
+// -------------------------------------------------------------
+// LAB — vaste projectcatalogus
+// De coach maakt instanties ('assignments') van deze projecten aan
+// en hangt er piloten aan. Voorlopig 1 actief project; de rest is
+// alvast voorbereid maar staat 'binnenkort' (available:false).
+// -------------------------------------------------------------
+window.LAB_PROJECTS = [
+  {
+    id: 'beurzen-evenementen',
+    title: 'Beurzen en Evenementen',
+    available: true,
+    summary: 'Vertegenwoordig House of Pilots op beurzen en evenementen en werk samen een plan uit.',
+    // Opdrachttekst — nader te bedenken / aan te passen
+    opdracht:
+      'Jullie vertegenwoordigen House of Pilots op beurzen en evenementen. ' +
+      'Werk als team een concreet plan uit: welke beurzen/evenementen zijn ' +
+      'relevant, hoe presenteren jullie House of Pilots, en hoe trekken jullie ' +
+      'de juiste mensen aan?\n\n' +
+      'Lever het plan in als Word-document. Eén teamlid uploadt namens iedereen. ' +
+      'Na het indienen beoordeelt de coach het plan en geeft feedback, waarna ' +
+      'jullie het kunnen bijwerken.',
+  },
+];

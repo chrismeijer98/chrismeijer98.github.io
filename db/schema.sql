@@ -54,10 +54,45 @@ create table if not exists pcp_scores (
   unique (user_id, scored_by, competence_id)
 );
 
+-- ---- 5. LAB: PROJECT-OPDRACHTEN ----------------------------
+-- Een 'assignment' is één instantie van een vast projecttype
+-- (project_id verwijst naar de catalogus in js/data.js, bv.
+-- 'beurzen-evenementen'). De coach maakt instanties aan en hangt
+-- piloten eraan. Status stuurt de workflow.
+create table if not exists lab_assignments (
+  id                   uuid primary key default gen_random_uuid(),
+  project_id           text not null,
+  label                text,
+  status               text not null default 'open'
+                         check (status in ('open','submitted','revision','completed')),
+  -- huidige (laatst geüploade) document; werkkopie tot 'dien in'
+  document_path        text,
+  document_name        text,
+  document_uploaded_by uuid references users(id) on delete set null,
+  document_uploaded_at timestamptz,
+  -- geschiedenis van coach-feedbackrondes (jsonb, zie js/api.js):
+  -- [{ document_path, document_name, submitted_at, feedback,
+  --    feedback_at, is_final }]
+  rounds               jsonb not null default '[]',
+  created_by           uuid references users(id) on delete set null,
+  created_at           timestamptz default now(),
+  updated_at           timestamptz default now()
+);
+
+-- ---- 6. LAB: TEAMLEDEN (piloten per assignment) ------------
+create table if not exists lab_assignment_members (
+  assignment_id uuid not null references lab_assignments(id) on delete cascade,
+  user_id       uuid not null references users(id) on delete cascade,
+  created_at    timestamptz default now(),
+  primary key (assignment_id, user_id)
+);
+
 -- ---- INDICES -----------------------------------------------
 create index if not exists feedback_responses_session_code_idx on feedback_responses(session_code);
 create index if not exists pcp_scores_user_id_idx on pcp_scores(user_id);
 create index if not exists feedback_sessions_owner_id_idx on feedback_sessions(owner_id);
+create index if not exists lab_assignments_project_id_idx on lab_assignments(project_id);
+create index if not exists lab_assignment_members_user_id_idx on lab_assignment_members(user_id);
 
 -- ---- ROW LEVEL SECURITY ------------------------------------
 -- De site gebruikt de publieke anon-sleutel (geen login).
@@ -78,3 +113,40 @@ create policy "anon full access" on feedback_responses
 
 create policy "anon full access" on pcp_scores
   for all to anon using (true) with check (true);
+
+alter table lab_assignments enable row level security;
+alter table lab_assignment_members enable row level security;
+
+-- drop-if-exists maakt dit blok veilig om opnieuw te draaien
+drop policy if exists "anon full access" on lab_assignments;
+create policy "anon full access" on lab_assignments
+  for all to anon using (true) with check (true);
+
+drop policy if exists "anon full access" on lab_assignment_members;
+create policy "anon full access" on lab_assignment_members
+  for all to anon using (true) with check (true);
+
+-- ============================================================
+-- STORAGE: bucket voor Lab-documenten (.docx)
+-- ============================================================
+-- Maakt een publieke bucket 'lab-docs' aan en geeft de anon-rol
+-- upload-/lees-/verwijderrechten (consistent met de rest van de app).
+insert into storage.buckets (id, name, public)
+values ('lab-docs', 'lab-docs', true)
+on conflict (id) do nothing;
+
+drop policy if exists "lab-docs anon read" on storage.objects;
+create policy "lab-docs anon read" on storage.objects
+  for select to anon using (bucket_id = 'lab-docs');
+
+drop policy if exists "lab-docs anon insert" on storage.objects;
+create policy "lab-docs anon insert" on storage.objects
+  for insert to anon with check (bucket_id = 'lab-docs');
+
+drop policy if exists "lab-docs anon update" on storage.objects;
+create policy "lab-docs anon update" on storage.objects
+  for update to anon using (bucket_id = 'lab-docs') with check (bucket_id = 'lab-docs');
+
+drop policy if exists "lab-docs anon delete" on storage.objects;
+create policy "lab-docs anon delete" on storage.objects
+  for delete to anon using (bucket_id = 'lab-docs');

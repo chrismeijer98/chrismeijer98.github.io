@@ -177,6 +177,180 @@
       guard(error);
       return data;
     },
+
+    // ---- Lab: piloten ophalen (voor indeling) ----
+    async listPilots() {
+      const { data, error } = await db()
+        .from('users')
+        .select('id, full_name, role')
+        .eq('role', 'pilot')
+        .order('full_name', { ascending: true });
+      guard(error);
+      return data;
+    },
+
+    // ---- Lab: assignments (project-instanties) ----
+    async createAssignment({ project_id, label, created_by, member_ids }) {
+      const { data, error } = await db()
+        .from('lab_assignments')
+        .insert({ project_id, label: label || null, created_by: created_by || null })
+        .select()
+        .single();
+      guard(error);
+      if (member_ids && member_ids.length) await this.setAssignmentMembers(data.id, member_ids);
+      return data;
+    },
+
+    async setAssignmentMembers(assignment_id, member_ids) {
+      const client = db();
+      const { error: delErr } = await client
+        .from('lab_assignment_members')
+        .delete()
+        .eq('assignment_id', assignment_id);
+      guard(delErr);
+      if (member_ids && member_ids.length) {
+        const rows = member_ids.map((user_id) => ({ assignment_id, user_id }));
+        const { error: insErr } = await client.from('lab_assignment_members').insert(rows);
+        guard(insErr);
+      }
+    },
+
+    // Voegt aan elke assignment een .members array toe ([{user_id, full_name, role}])
+    async _attachMembers(assignments) {
+      if (!assignments || !assignments.length) return assignments || [];
+      const ids = assignments.map((a) => a.id);
+      const { data, error } = await db()
+        .from('lab_assignment_members')
+        .select('assignment_id, user_id, users(full_name, role)')
+        .in('assignment_id', ids);
+      guard(error);
+      const byAssignment = {};
+      (data || []).forEach((m) => {
+        (byAssignment[m.assignment_id] = byAssignment[m.assignment_id] || []).push({
+          user_id: m.user_id,
+          full_name: m.users?.full_name || '',
+          role: m.users?.role || 'pilot',
+        });
+      });
+      assignments.forEach((a) => { a.members = byAssignment[a.id] || []; });
+      return assignments;
+    },
+
+    async listAssignments(project_id) {
+      let q = db().from('lab_assignments').select('*').order('created_at', { ascending: false });
+      if (project_id) q = q.eq('project_id', project_id);
+      const { data, error } = await q;
+      guard(error);
+      return this._attachMembers(data || []);
+    },
+
+    async listAssignmentsForPilot(user_id) {
+      const { data, error } = await db()
+        .from('lab_assignment_members')
+        .select('assignment_id')
+        .eq('user_id', user_id);
+      guard(error);
+      const ids = (data || []).map((r) => r.assignment_id);
+      if (!ids.length) return [];
+      const { data: rows, error: e2 } = await db()
+        .from('lab_assignments')
+        .select('*')
+        .in('id', ids)
+        .order('created_at', { ascending: false });
+      guard(e2);
+      return this._attachMembers(rows || []);
+    },
+
+    async getAssignment(id) {
+      const { data, error } = await db()
+        .from('lab_assignments')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      guard(error);
+      if (!data) return null;
+      const [withMembers] = await this._attachMembers([data]);
+      return withMembers;
+    },
+
+    async deleteAssignment(id) {
+      const { error } = await db().from('lab_assignments').delete().eq('id', id);
+      guard(error);
+    },
+
+    // ---- Lab: documenten (Supabase Storage, bucket 'lab-docs') ----
+    async uploadAssignmentDocument(assignment_id, file, user_id) {
+      const client = db();
+      const safe = file.name.replace(/[^\w.\-]+/g, '_');
+      const path = `${assignment_id}/${Date.now()}-${safe}`;
+      const { error: upErr } = await client.storage
+        .from('lab-docs')
+        .upload(path, file, { upsert: false, contentType: file.type || undefined });
+      guard(upErr);
+      const { data, error } = await client
+        .from('lab_assignments')
+        .update({
+          document_path: path,
+          document_name: file.name,
+          document_uploaded_by: user_id || null,
+          document_uploaded_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', assignment_id)
+        .select()
+        .single();
+      guard(error);
+      const [withMembers] = await this._attachMembers([data]);
+      return withMembers;
+    },
+
+    documentUrl(path, downloadName) {
+      if (!path) return null;
+      const { data } = db().storage
+        .from('lab-docs')
+        .getPublicUrl(path, downloadName ? { download: downloadName } : undefined);
+      return data?.publicUrl || null;
+    },
+
+    // Pilot dient het huidige document in → wacht op controle coach
+    async submitAssignment(id) {
+      const { data, error } = await db()
+        .from('lab_assignments')
+        .update({ status: 'submitted', updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
+      guard(error);
+      return data;
+    },
+
+    // Coach geeft feedback: terugsturen (revision) of afronden (completed)
+    async reviewAssignment(id, { feedback, final }) {
+      const cur = await this.getAssignment(id);
+      if (!cur) throw new Error('Opdracht niet gevonden');
+      const round = {
+        document_path: cur.document_path || null,
+        document_name: cur.document_name || null,
+        submitted_at:  cur.document_uploaded_at || null,
+        feedback:      feedback || '',
+        feedback_at:   new Date().toISOString(),
+        is_final:      !!final,
+      };
+      const rounds = Array.isArray(cur.rounds) ? cur.rounds.slice() : [];
+      rounds.push(round);
+      const { data, error } = await db()
+        .from('lab_assignments')
+        .update({
+          rounds,
+          status: final ? 'completed' : 'revision',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .select()
+        .single();
+      guard(error);
+      return data;
+    },
   };
 
   // ---- Session (localStorage) ----

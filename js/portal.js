@@ -77,11 +77,11 @@
       <p class="page-lead">Het House of Pilots programma bestaat uit drie onderdelen.</p>
 
       <div class="sect-grid">
-        <button class="sect-card soon" disabled>
+        <button class="sect-card clickable" id="sect-lab">
           <div class="sect-ico" style="background:rgba(229,107,62,.14);color:var(--coral-dark)">${ICONS.sparkles}</div>
           <div class="sect-t">Lab</div>
-          <div class="sect-d">Experimenteren en verdiepen. Dit onderdeel wordt later uitgewerkt.</div>
-          <div class="sect-foot" style="color:var(--muted)">Binnenkort beschikbaar</div>
+          <div class="sect-d">Werk samen met andere piloten aan praktijkopdrachten, toegewezen door je coach.</div>
+          <div class="sect-foot" style="color:var(--coral-dark)">Openen ${ICONS.arrowRight}</div>
         </button>
 
         <button class="sect-card clickable" id="sect-ontw">
@@ -100,6 +100,7 @@
       </div>
     </div>`;
 
+    qs('#sect-lab').onclick = () => go('lab');
     qs('#sect-ontw').onclick = () => go('ontwikkeling');
 
     // Verrijk de Ontwikkeling-kaart met live voortgang
@@ -130,11 +131,408 @@
       </div>
     </div>`;
   }
-  function renderLab() {
-    comingSoon('Lab', 'Experimenteren en verdiepen.', ICONS.sparkles);
-  }
   function renderOefenmateriaal() {
     comingSoon('Oefenmateriaal', 'Oefeningen en materiaal om mee aan de slag te gaan.', ICONS.fileText);
+  }
+
+  // ==========================================================
+  // LAB — projectopdrachten (piloot werkt samen, coach deelt in & beoordeelt)
+  // hash: #lab
+  //       #lab/p/<assignmentId>   piloot: opdracht openen
+  //       #lab/new/<projectId>    coach: nieuwe indeling
+  //       #lab/a/<assignmentId>   coach: beheren & beoordelen
+  // ==========================================================
+  const LAB_LOCK     = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+  const LAB_UPLOAD   = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+  const LAB_DOWNLOAD = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+
+  const LAB_STATUS = {
+    open:      { label: 'Open',                          color: 'var(--navy)',       bg: 'rgba(30,74,122,.12)' },
+    submitted: { label: 'Ingediend — wacht op controle', color: 'var(--coral-dark)', bg: 'rgba(229,107,62,.14)' },
+    revision:  { label: 'Feedback ontvangen',            color: '#B45309',           bg: 'rgba(217,119,6,.16)' },
+    completed: { label: 'Afgerond',                      color: '#15803D',           bg: 'rgba(21,128,61,.14)' },
+  };
+  function labProject(id) { return (window.LAB_PROJECTS || []).find((p) => p.id === id) || null; }
+  function labStatusPill(status) {
+    const s = LAB_STATUS[status] || LAB_STATUS.open;
+    return `<span class="pill" style="background:${s.bg};color:${s.color}">${s.label}</span>`;
+  }
+  function labMemberNames(a) {
+    return (a.members || []).map((m) => escapeHtml(m.full_name)).join(', ') || '—';
+  }
+  function labRounds(a, el) {
+    const rounds = Array.isArray(a.rounds) ? a.rounds : [];
+    if (!rounds.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `<div class="card card-lg">
+      <div class="lab-section-label">Feedback van de coach</div>
+      ${rounds.map((r, i) => `
+        <div class="lab-round">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+            <span style="font-size:12px;font-weight:700;color:var(--coral-dark)">Ronde ${i + 1}</span>
+            ${r.is_final ? '<span class="pill" style="background:rgba(21,128,61,.14);color:#15803D">Eindfeedback</span>' : ''}
+            <span style="font-size:12px;color:var(--muted)">${r.feedback_at ? formatDate(r.feedback_at) : ''}</span>
+          </div>
+          <div style="white-space:pre-line;font-size:14px;line-height:1.6">${escapeHtml(r.feedback || '(geen tekst)')}</div>
+        </div>`).join('')}
+    </div>`;
+  }
+
+  function renderLab() {
+    const parts = hashParts(); // ['lab', seg1, seg2]
+    const seg1 = parts[1], seg2 = parts[2];
+    if (session.role === 'coach') {
+      if (seg1 === 'new' && seg2) return renderLabNew(seg2);
+      if (seg1 === 'a' && seg2)   return renderLabCoachDetail(seg2);
+      return renderLabCoachIndex();
+    }
+    if (seg1 === 'p' && seg2) return renderLabPilotDetail(seg2);
+    return renderLabPilotIndex();
+  }
+
+  // ---------- PILOOT: projectoverzicht ----------
+  async function renderLabPilotIndex() {
+    const main = qs('#main');
+    main.innerHTML = `<div class="fade-up">
+      <div class="eyebrow">Lab</div>
+      <h1 class="page-title">Projecten.</h1>
+      <p class="page-lead">Werk samen met andere piloten aan praktijkopdrachten. Een project opent zodra de coach je heeft ingedeeld.</p>
+      <div id="lab-body"><div class="spinner" style="margin:80px auto"></div></div>
+    </div>`;
+
+    let mine = [];
+    try { mine = await HopApi.listAssignmentsForPilot(session.user_id); } catch (e) { console.warn(e); }
+
+    const projects = (window.LAB_PROJECTS || []).filter((p) => p.available);
+    const cards = projects.map((p) => {
+      const forP = mine.filter((a) => a.project_id === p.id);
+      if (!forP.length) {
+        return `<div class="lab-card locked">
+          <div class="lab-lock">${LAB_LOCK}</div>
+          <div class="sect-t">${escapeHtml(p.title)}</div>
+          <div class="sect-d">${escapeHtml(p.summary)}</div>
+          <div class="lab-foot" style="color:var(--muted)">Nog niet ingedeeld door de coach</div>
+        </div>`;
+      }
+      return forP.map((a) => `
+        <button class="lab-card clickable" data-open="${a.id}">
+          <div class="lab-ico" style="background:rgba(229,107,62,.14);color:var(--coral-dark)">${ICONS.sparkles}</div>
+          <div class="sect-t">${escapeHtml(a.label || p.title)}</div>
+          <div class="sect-d">Team: ${labMemberNames(a)}</div>
+          <div class="lab-foot">${labStatusPill(a.status)}</div>
+        </button>`).join('');
+    }).join('');
+
+    qs('#lab-body').innerHTML = `<div class="sect-grid">${cards}</div>`;
+    qsa('#lab-body [data-open]').forEach((b) =>
+      b.addEventListener('click', () => go('lab', 'p/' + b.dataset.open)));
+  }
+
+  // ---------- PILOOT: opdracht openen / inleveren ----------
+  async function renderLabPilotDetail(id) {
+    const main = qs('#main');
+    main.innerHTML = `<div class="fade-up"><div class="spinner" style="margin:80px auto"></div></div>`;
+    let a;
+    try { a = await HopApi.getAssignment(id); } catch (e) { console.warn(e); }
+    const isMember = a && (a.members || []).some((m) => m.user_id === session.user_id);
+    if (!a || !isMember) {
+      main.innerHTML = `<div class="fade-up">
+        <a href="#lab" class="back-link">${ICONS.chevLeft} Terug naar Lab</a>
+        <div class="card" style="color:var(--danger)">Je hebt geen toegang tot deze opdracht of hij bestaat niet.</div>
+      </div>`;
+      return;
+    }
+    const p = labProject(a.project_id);
+    let docUrl = a.document_path ? HopApi.documentUrl(a.document_path, a.document_name) : null;
+
+    main.innerHTML = `<div class="fade-up">
+      <a href="#lab" class="back-link">${ICONS.chevLeft} Terug naar Lab</a>
+      <div class="eyebrow">Lab · ${escapeHtml(p ? p.title : 'Project')}</div>
+      <h1 class="page-title">${escapeHtml(a.label || (p ? p.title : 'Opdracht'))}.</h1>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+        ${labStatusPill(a.status)}
+        <span style="font-size:13px;color:var(--muted)">Team: ${labMemberNames(a)}</span>
+      </div>
+
+      <div class="card card-lg" style="margin-bottom:20px">
+        <div class="lab-section-label">De opdracht</div>
+        <div style="white-space:pre-line;font-size:14px;line-height:1.65;color:var(--ink)">${escapeHtml(p ? p.opdracht : '')}</div>
+      </div>
+
+      <div class="card card-lg" style="margin-bottom:20px">
+        <div class="lab-section-label">Document</div>
+        <div id="lab-doc"></div>
+      </div>
+
+      <div id="lab-rounds"></div>
+    </div>`;
+
+    renderPilotDoc();
+    labRounds(a, qs('#lab-rounds'));
+
+    function docBlock() {
+      return docUrl ? `
+        <div class="lab-doc-row">
+          ${ICONS.fileText}
+          <div style="flex:1;min-width:0">
+            <a href="${docUrl}" target="_blank" rel="noopener" style="font-weight:600;color:var(--navy-deep)">${escapeHtml(a.document_name || 'Document')}</a>
+            <div style="font-size:12px;color:var(--muted)">Geüpload ${a.document_uploaded_at ? formatDate(a.document_uploaded_at) : ''}</div>
+          </div>
+          <a class="btn btn-ghost btn-sm" href="${docUrl}" target="_blank" rel="noopener">${LAB_DOWNLOAD} Download</a>
+        </div>`
+        : `<div style="font-size:13px;color:var(--muted);margin-bottom:6px">Nog geen document geüpload.</div>`;
+    }
+
+    function renderPilotDoc() {
+      const wrap = qs('#lab-doc');
+      if (a.status === 'submitted') {
+        wrap.innerHTML = docBlock() + `<div class="lab-note">${ICONS.check} Ingediend. In afwachting van controle door de coach.</div>`;
+        return;
+      }
+      if (a.status === 'completed') {
+        wrap.innerHTML = docBlock() + `<div class="lab-note" style="color:#15803D">${ICONS.check} Deze opdracht is afgerond.</div>`;
+        return;
+      }
+      // open / revision → upload + dien in
+      wrap.innerHTML = docBlock() + `
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px">
+          <input type="file" id="lab-file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">
+          <button class="btn btn-ghost btn-sm" id="lab-pick">${LAB_UPLOAD} ${a.document_path ? 'Vervang document' : 'Document uploaden'}</button>
+          <span id="lab-file-name" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+        <div style="margin-top:16px;border-top:1px dashed var(--sand);padding-top:16px">
+          <button class="btn btn-coral" id="lab-submit" ${a.document_path ? '' : 'disabled'}>${ICONS.send} Dien in</button>
+          <div style="font-size:12px;color:var(--muted);margin-top:8px">Eén teamlid uploadt namens iedereen. Indienen kan zodra er een document staat.</div>
+        </div>`;
+
+      const fileInput = qs('#lab-file');
+      qs('#lab-pick').onclick = () => fileInput.click();
+      fileInput.onchange = async () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        qs('#lab-file-name').textContent = 'Uploaden…';
+        try {
+          a = await HopApi.uploadAssignmentDocument(a.id, file, session.user_id);
+          docUrl = HopApi.documentUrl(a.document_path, a.document_name);
+          toast('Document geüpload', 'success');
+          renderPilotDoc();
+        } catch (e) {
+          console.error(e);
+          toast('Upload mislukt: ' + e.message, 'error', 3500);
+          const fn = qs('#lab-file-name'); if (fn) fn.textContent = '';
+        }
+      };
+      qs('#lab-submit').onclick = async () => {
+        if (!confirm('Document indienen ter controle door de coach?')) return;
+        try {
+          await HopApi.submitAssignment(a.id);
+          toast('Ingediend', 'success');
+          renderLabPilotDetail(a.id);
+        } catch (e) { toast('Kon niet indienen', 'error'); }
+      };
+    }
+  }
+
+  // ---------- COACH: projecten + indelingen ----------
+  async function renderLabCoachIndex() {
+    const main = qs('#main');
+    main.innerHTML = `<div class="fade-up">
+      <div class="eyebrow">Lab · Coach</div>
+      <h1 class="page-title">Projecten indelen.</h1>
+      <p class="page-lead">Deel piloten in op projecten en beoordeel hun ingeleverde opdrachten.</p>
+      <div id="lab-body"><div class="spinner" style="margin:80px auto"></div></div>
+    </div>`;
+
+    let all = [];
+    try { all = await HopApi.listAssignments(); } catch (e) { console.warn(e); }
+
+    const projects = (window.LAB_PROJECTS || []).filter((p) => p.available);
+    qs('#lab-body').innerHTML = projects.map((p) => {
+      const list = all.filter((a) => a.project_id === p.id);
+      const rows = list.length ? list.map((a) => `
+        <div class="lab-assign-row">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;color:var(--navy-deep)">${escapeHtml(a.label || p.title)}</div>
+            <div style="font-size:12px;color:var(--muted)">Team: ${labMemberNames(a)}</div>
+          </div>
+          ${labStatusPill(a.status)}
+          <button class="btn btn-primary btn-sm" data-manage="${a.id}">Beheren</button>
+        </div>`).join('')
+        : `<div style="font-size:13px;color:var(--muted);padding:8px 0">Nog geen indelingen voor dit project.</div>`;
+      return `<div class="card card-lg" style="margin-bottom:18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+          <div>
+            <div class="font-display" style="font-size:20px;font-weight:600;color:var(--navy-deep)">${escapeHtml(p.title)}</div>
+            <div style="font-size:13px;color:var(--muted)">${escapeHtml(p.summary)}</div>
+          </div>
+          <button class="btn btn-coral btn-sm" data-new="${p.id}">${ICONS.plus} Nieuwe indeling</button>
+        </div>
+        ${rows}
+      </div>`;
+    }).join('');
+
+    qsa('#lab-body [data-new]').forEach((b) => b.addEventListener('click', () => go('lab', 'new/' + b.dataset.new)));
+    qsa('#lab-body [data-manage]').forEach((b) => b.addEventListener('click', () => go('lab', 'a/' + b.dataset.manage)));
+  }
+
+  // ---------- COACH: nieuwe indeling ----------
+  async function renderLabNew(projectId) {
+    const main = qs('#main');
+    const p = labProject(projectId);
+    if (!p) { main.innerHTML = `<div class="card" style="color:var(--danger)">Onbekend project. <a href="#lab">Terug</a></div>`; return; }
+    main.innerHTML = `<div class="fade-up" style="max-width:640px">
+      <a href="#lab" class="back-link">${ICONS.chevLeft} Terug naar Lab</a>
+      <div class="eyebrow">Nieuwe indeling</div>
+      <h1 class="page-title" style="font-size:36px">${escapeHtml(p.title)}.</h1>
+      <p class="page-lead">Selecteer de piloten die samen aan dit project werken.</p>
+      <div class="card card-lg">
+        <div class="field">
+          <label class="field-label">Naam van deze indeling (optioneel)</label>
+          <input id="lab-label" class="input" placeholder="bv. ${escapeHtml(p.title)} — groep 1">
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label class="field-label">Piloten</label>
+          <div id="lab-pilots"><div class="spinner" style="margin:20px auto"></div></div>
+        </div>
+        <button class="btn btn-coral" id="lab-create" style="margin-top:18px">Indeling aanmaken ${ICONS.arrowRight}</button>
+      </div>
+    </div>`;
+
+    let pilots = [];
+    try { pilots = await HopApi.listPilots(); } catch (e) { console.warn(e); }
+    qs('#lab-pilots').innerHTML = pilots.length
+      ? pilots.map((u) => `<label class="lab-check"><input type="checkbox" value="${u.id}"><span>${escapeHtml(u.full_name)}</span></label>`).join('')
+      : `<div style="font-size:13px;color:var(--muted)">Nog geen piloten beschikbaar. Maak ze eerst aan in het beheerportaal.</div>`;
+
+    qs('#lab-create').onclick = async () => {
+      const ids = qsa('#lab-pilots input:checked').map((c) => c.value);
+      if (!ids.length) { toast('Selecteer minstens één piloot', 'error'); return; }
+      const btn = qs('#lab-create'); btn.disabled = true; btn.textContent = 'Aanmaken…';
+      try {
+        const a = await HopApi.createAssignment({
+          project_id: projectId, label: qs('#lab-label').value.trim(),
+          created_by: session.user_id, member_ids: ids,
+        });
+        toast('Indeling aangemaakt', 'success');
+        go('lab', 'a/' + a.id);
+      } catch (e) {
+        console.error(e);
+        toast('Kon niet aanmaken: ' + e.message, 'error', 3500);
+        btn.disabled = false; btn.innerHTML = `Indeling aanmaken ${ICONS.arrowRight}`;
+      }
+    };
+  }
+
+  // ---------- COACH: indeling beheren & beoordelen ----------
+  async function renderLabCoachDetail(id) {
+    const main = qs('#main');
+    main.innerHTML = `<div class="fade-up"><div class="spinner" style="margin:80px auto"></div></div>`;
+    let a;
+    try { a = await HopApi.getAssignment(id); } catch (e) { console.warn(e); }
+    if (!a) { main.innerHTML = `<div class="card" style="color:var(--danger)">Opdracht niet gevonden. <a href="#lab">Terug</a></div>`; return; }
+    const p = labProject(a.project_id);
+    const docUrl = a.document_path ? HopApi.documentUrl(a.document_path, a.document_name) : null;
+
+    main.innerHTML = `<div class="fade-up">
+      <a href="#lab" class="back-link">${ICONS.chevLeft} Terug naar Lab</a>
+      <div class="eyebrow">Lab · ${escapeHtml(p ? p.title : 'Project')}</div>
+      <h1 class="page-title" style="font-size:38px">${escapeHtml(a.label || (p ? p.title : 'Opdracht'))}.</h1>
+      <div style="margin-bottom:20px">${labStatusPill(a.status)}</div>
+
+      <div class="card card-lg" style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+          <div class="lab-section-label" style="margin:0">Team</div>
+          <button class="btn btn-ghost btn-sm" id="lab-edit-team">Team bewerken</button>
+        </div>
+        <div id="lab-team"></div>
+      </div>
+
+      <div class="card card-lg" style="margin-bottom:20px">
+        <div class="lab-section-label">Ingeleverd document</div>
+        <div id="lab-doc"></div>
+      </div>
+
+      <div id="lab-rounds" style="margin-bottom:20px"></div>
+
+      <div class="card card-lg" style="margin-bottom:20px" id="lab-review-card">
+        <div class="lab-section-label">Feedback geven</div>
+        <textarea id="lab-fb" class="input" rows="4" placeholder="Schrijf je feedback voor de piloten…"></textarea>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px">
+          <button class="btn btn-primary" id="lab-return">${ICONS.send} Stuur terug naar piloten</button>
+          <button class="btn btn-coral" id="lab-finish">${ICONS.check} Opdracht afronden</button>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:10px">Bij terugsturen kunnen piloten een nieuw document uploaden. Bij afronden is de opdracht klaar (feedback optioneel).</div>
+      </div>
+
+      <button class="btn btn-ghost btn-sm" id="lab-del" style="color:var(--danger)">${ICONS.trash} Indeling verwijderen</button>
+    </div>`;
+
+    renderTeam();
+    renderCoachDoc();
+    labRounds(a, qs('#lab-rounds'));
+    qs('#lab-review-card').style.display = a.status === 'submitted' ? 'block' : 'none';
+
+    function renderTeam() {
+      qs('#lab-team').innerHTML = (a.members || []).length
+        ? `<div style="font-size:14px;color:var(--ink)">${labMemberNames(a)}</div>`
+        : `<div style="font-size:13px;color:var(--muted)">Nog geen piloten ingedeeld.</div>`;
+    }
+
+    qs('#lab-edit-team').onclick = async () => {
+      const teamEl = qs('#lab-team');
+      teamEl.innerHTML = `<div class="spinner" style="margin:16px auto"></div>`;
+      let pilots = [];
+      try { pilots = await HopApi.listPilots(); } catch (e) {}
+      const current = new Set((a.members || []).map((m) => m.user_id));
+      teamEl.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+          ${pilots.length ? pilots.map((u) => `<label class="lab-check"><input type="checkbox" value="${u.id}" ${current.has(u.id) ? 'checked' : ''}><span>${escapeHtml(u.full_name)}</span></label>`).join('') : '<span style="font-size:13px;color:var(--muted)">Geen piloten beschikbaar.</span>'}
+        </div>
+        <button class="btn btn-primary btn-sm" id="lab-team-save">Team opslaan</button>
+        <button class="btn btn-ghost btn-sm" id="lab-team-cancel">Annuleer</button>`;
+      qs('#lab-team-cancel').onclick = renderTeam;
+      qs('#lab-team-save').onclick = async () => {
+        const ids = qsa('#lab-team input:checked').map((c) => c.value);
+        try {
+          await HopApi.setAssignmentMembers(a.id, ids);
+          a = await HopApi.getAssignment(a.id);
+          toast('Team bijgewerkt', 'success');
+          renderTeam();
+        } catch (e) { toast('Kon team niet opslaan', 'error'); }
+      };
+    };
+
+    function renderCoachDoc() {
+      const wrap = qs('#lab-doc');
+      if (!docUrl) { wrap.innerHTML = `<div style="font-size:13px;color:var(--muted)">Nog geen document ingeleverd.</div>`; return; }
+      wrap.innerHTML = `
+        <div class="lab-doc-row">
+          ${ICONS.fileText}
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;color:var(--navy-deep)">${escapeHtml(a.document_name || 'Document')}</div>
+            <div style="font-size:12px;color:var(--muted)">Ingeleverd ${a.document_uploaded_at ? formatDate(a.document_uploaded_at) : ''}</div>
+          </div>
+          <a class="btn btn-primary btn-sm" href="${docUrl}" target="_blank" rel="noopener">${LAB_DOWNLOAD} Downloaden</a>
+        </div>`;
+    }
+
+    async function review(final) {
+      const feedback = qs('#lab-fb').value.trim();
+      if (!final && !feedback) { toast('Schrijf feedback om terug te sturen', 'error'); return; }
+      if (!confirm(final ? 'Opdracht afronden?' : 'Opdracht terugsturen naar piloten?')) return;
+      try {
+        await HopApi.reviewAssignment(a.id, { feedback, final });
+        toast(final ? 'Opdracht afgerond' : 'Teruggestuurd naar piloten', 'success');
+        renderLabCoachDetail(a.id);
+      } catch (e) { console.error(e); toast('Kon niet opslaan: ' + e.message, 'error', 3500); }
+    }
+    qs('#lab-return').onclick = () => review(false);
+    qs('#lab-finish').onclick = () => review(true);
+
+    qs('#lab-del').onclick = async () => {
+      if (!confirm('Deze indeling en alle voortgang verwijderen?')) return;
+      try { await HopApi.deleteAssignment(a.id); toast('Indeling verwijderd', 'success'); go('lab'); }
+      catch (e) { toast('Kon niet verwijderen', 'error'); }
+    };
   }
 
   // ==========================================================

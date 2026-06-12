@@ -214,6 +214,32 @@ textarea.input{resize:vertical;min-height:80px;line-height:1.55}
 .sect-card .sect-foot{font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
 @media(max-width:900px){.sect-grid{grid-template-columns:1fr}}
 
+/* ========== Lab — projectkaarten & opdrachten ========== */
+.lab-card{
+  padding:24px;background:white;border:1px solid var(--sand);border-radius:14px;
+  text-align:left;display:flex;flex-direction:column;gap:11px;min-height:190px;
+  transition:border-color .15s, transform .15s, box-shadow .15s;
+}
+.lab-card.clickable{cursor:pointer}
+.lab-card.clickable:hover{border-color:var(--navy);transform:translateY(-3px);box-shadow:0 8px 22px rgba(15,30,50,.08)}
+.lab-card.locked{border-style:dashed;background:var(--cream);opacity:.9}
+.lab-card .lab-ico{width:50px;height:50px;border-radius:13px;display:flex;align-items:center;justify-content:center}
+.lab-card .lab-lock{width:50px;height:50px;border-radius:13px;display:flex;align-items:center;justify-content:center;background:var(--sand);color:var(--muted)}
+.lab-card .sect-t{font-family:'Fraunces',Georgia,serif;font-size:20px;font-weight:600;color:var(--navy-deep)}
+.lab-card .sect-d{font-size:13px;color:var(--muted);line-height:1.5;flex:1}
+.lab-card .lab-foot{font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
+
+.lab-section-label{font-size:11px;letter-spacing:.22em;color:var(--muted);text-transform:uppercase;font-weight:600;margin-bottom:14px}
+.lab-doc-row{display:flex;align-items:center;gap:14px;color:var(--navy);padding:14px;background:var(--cream);border:1px solid var(--sand);border-radius:10px}
+.lab-note{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-top:14px}
+.lab-round{padding:14px 0;border-top:1px dashed var(--sand)}
+.lab-round:first-of-type{border-top:none;padding-top:0}
+.lab-assign-row{display:flex;align-items:center;gap:14px;padding:12px 0;border-top:1px solid var(--sand)}
+.lab-assign-row:first-of-type{border-top:none}
+.lab-check{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--ink);padding:7px 10px;border-radius:8px;cursor:pointer}
+.lab-check:hover{background:var(--sand)}
+.lab-check input{width:16px;height:16px;accent-color:var(--coral);flex-shrink:0}
+
 /* ========== Feedback / session UI ========== */
 .code-hero{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:48px;font-weight:700;letter-spacing:.1em;color:white}
 .link-box{background:rgba(255,255,255,.08);border:1px dashed rgba(255,255,255,.25);border-radius:8px;padding:10px 14px;font-size:12px;font-family:ui-monospace,monospace;cursor:pointer;word-break:break-all;color:rgba(255,255,255,.85)}
