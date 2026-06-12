@@ -198,6 +198,22 @@ textarea.input{resize:vertical;min-height:80px;line-height:1.55}
 .dash-stat .t{font-family:'Fraunces',Georgia,serif;font-size:20px;font-weight:600;color:var(--navy-deep);margin-bottom:4px}
 .dash-stat .d{font-size:13px;color:var(--muted)}
 
+/* ========== Dashboard sectie-kaarten (Lab / Ontwikkeling / Oefenmateriaal) ========== */
+.sect-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:8px}
+.sect-card{
+  padding:26px;background:white;border:1px solid var(--sand);border-radius:14px;
+  text-align:left;display:flex;flex-direction:column;gap:13px;min-height:210px;
+  transition:border-color .15s, transform .15s, box-shadow .15s;
+}
+.sect-card.clickable{cursor:pointer}
+.sect-card.clickable:hover{border-color:var(--navy);transform:translateY(-3px);box-shadow:0 8px 22px rgba(15,30,50,.08)}
+.sect-card.soon{opacity:.75}
+.sect-card .sect-ico{width:54px;height:54px;border-radius:14px;display:flex;align-items:center;justify-content:center}
+.sect-card .sect-t{font-family:'Fraunces',Georgia,serif;font-size:22px;font-weight:600;color:var(--navy-deep)}
+.sect-card .sect-d{font-size:13px;color:var(--muted);line-height:1.55;flex:1}
+.sect-card .sect-foot{font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
+@media(max-width:900px){.sect-grid{grid-template-columns:1fr}}
+
 /* ========== Feedback / session UI ========== */
 .code-hero{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:48px;font-weight:700;letter-spacing:.1em;color:white}
 .link-box{background:rgba(255,255,255,.08);border:1px dashed rgba(255,255,255,.25);border-radius:8px;padding:10px 14px;font-size:12px;font-family:ui-monospace,monospace;cursor:pointer;word-break:break-all;color:rgba(255,255,255,.85)}

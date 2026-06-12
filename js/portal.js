@@ -36,12 +36,18 @@
   updateRoleUI();
 
   // --------------------------------------------------------
-  // Tab routing (hash: #dashboard / #pcp / #feedback[:...])
+  // Tab routing — 3 secties: Lab / Ontwikkeling / Oefenmateriaal
+  // hash: #dashboard | #lab | #oefenmateriaal
+  //       #ontwikkeling/pcp[/<catId>]
+  //       #ontwikkeling/feedback[/new | /manage/<code>]
   // --------------------------------------------------------
-  const TABS = ['dashboard', 'pcp', 'feedback'];
+  const TABS = ['dashboard', 'lab', 'ontwikkeling', 'oefenmateriaal'];
   function currentTab() {
     const h = (location.hash || '#dashboard').replace(/^#/, '').split('/')[0];
     return TABS.includes(h) ? h : 'dashboard';
+  }
+  function hashParts() {
+    return (location.hash || '').replace(/^#/, '').split('/');
   }
   function go(tab, extra = '') {
     location.hash = '#' + tab + (extra ? '/' + extra : '');
@@ -52,91 +58,118 @@
   function renderActiveTab() {
     const tab = currentTab();
     qsa('.side-link').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
-    if (tab === 'dashboard') renderDashboard();
-    else if (tab === 'pcp') renderPCP();
-    else if (tab === 'feedback') renderFeedback();
+    if (tab === 'lab') renderLab();
+    else if (tab === 'ontwikkeling') renderOntwikkeling();
+    else if (tab === 'oefenmateriaal') renderOefenmateriaal();
+    else renderDashboard();
   }
   renderActiveTab();
 
   // ==========================================================
-  // DASHBOARD
+  // DASHBOARD — overzicht van de 3 onderdelen
   // ==========================================================
   async function renderDashboard() {
     const main = qs('#main');
-    main.innerHTML = `<div class="fade-up"><div class="eyebrow">Welkom terug</div>
-      <h1 class="page-title">${session.role === 'coach' ? 'Coach dashboard.' : 'Jouw PCP dashboard.'}</h1>
-      <p class="page-lead">Overzicht van je voortgang in het programma.</p>
-      <div id="dash-body"><div class="spinner" style="margin:80px auto"></div></div></div>`;
+    const first = (session.full_name || '').split(' ')[0] || '';
+    main.innerHTML = `<div class="fade-up">
+      <div class="eyebrow">Welkom terug${first ? ', ' + escapeHtml(first) : ''}</div>
+      <h1 class="page-title">Jouw dashboard.</h1>
+      <p class="page-lead">Het House of Pilots programma bestaat uit drie onderdelen.</p>
 
-    const total = COMPETENCE_CATEGORIES.reduce(
-      (s, c) => s + c.competences.reduce((ss, cc) => ss + cc.subcompetences.length + 1, 0), 0);
+      <div class="sect-grid">
+        <button class="sect-card soon" disabled>
+          <div class="sect-ico" style="background:rgba(229,107,62,.14);color:var(--coral-dark)">${ICONS.sparkles}</div>
+          <div class="sect-t">Lab</div>
+          <div class="sect-d">Experimenteren en verdiepen. Dit onderdeel wordt later uitgewerkt.</div>
+          <div class="sect-foot" style="color:var(--muted)">Binnenkort beschikbaar</div>
+        </button>
 
-    let scored = 0, sessions = [];
+        <button class="sect-card clickable" id="sect-ontw">
+          <div class="sect-ico" style="background:rgba(30,74,122,.14);color:var(--navy)">${ICONS.trend}</div>
+          <div class="sect-t">Ontwikkeling</div>
+          <div class="sect-d">Jouw competentieprofiel (PCP) en 360° feedback. Breng in kaart waar je staat en waar je groeit.</div>
+          <div class="sect-foot" id="ontw-status" style="color:var(--navy)">Openen ${ICONS.arrowRight}</div>
+        </button>
+
+        <button class="sect-card soon" disabled>
+          <div class="sect-ico" style="background:rgba(30,74,122,.1);color:var(--navy)">${ICONS.fileText}</div>
+          <div class="sect-t">Oefenmateriaal</div>
+          <div class="sect-d">Oefeningen en materiaal om mee aan de slag te gaan. Dit onderdeel wordt later uitgewerkt.</div>
+          <div class="sect-foot" style="color:var(--muted)">Binnenkort beschikbaar</div>
+        </button>
+      </div>
+    </div>`;
+
+    qs('#sect-ontw').onclick = () => go('ontwikkeling');
+
+    // Verrijk de Ontwikkeling-kaart met live voortgang
     try {
+      const total = COMPETENCE_CATEGORIES.reduce(
+        (s, c) => s + c.competences.reduce((ss, cc) => ss + cc.subcompetences.length + 1, 0), 0);
       const scores = await HopApi.listScores(session.user_id);
-      scored = scores.filter((s) => s.scored_by === session.role).length;
+      const scored = scores.filter((s) => s.scored_by === session.role).length;
+      const sessions = await HopApi.listSessions(session.user_id);
+      const pct = total ? Math.round((scored / total) * 100) : 0;
+      const st = qs('#ontw-status');
+      if (st) st.innerHTML = `PCP ${pct}% · ${sessions.length} feedbacksessie(s) ${ICONS.arrowRight}`;
     } catch (e) { console.warn(e); }
-    try { sessions = await HopApi.listSessions(session.user_id); } catch (e) { console.warn(e); }
+  }
 
-    const percent = total ? Math.round((scored / total) * 100) : 0;
-
-    // Count total responses across sessions
-    let totalResponses = 0;
-    await Promise.all(sessions.map(async (s) => {
-      try { const rs = await HopApi.listResponses(s.code); totalResponses += rs.length; } catch (e) {}
-    }));
-
-    qs('#dash-body').innerHTML = `
-      <div class="panel" style="margin-bottom:20px">
-        <div style="position:relative;display:grid;grid-template-columns:1fr auto;gap:32px;align-items:center">
-          <div>
-            <div style="font-size:10px;letter-spacing:.3em;color:var(--coral);text-transform:uppercase;margin-bottom:10px;font-weight:600">Voortgang competentieprofiel</div>
-            <div class="font-display" style="font-size:40px;font-weight:600;line-height:1;margin-bottom:12px">
-              ${scored} / ${total} <span style="font-size:16px;color:rgba(255,255,255,.6);font-weight:400">gescoord</span>
-            </div>
-            <div style="height:8px;background:rgba(255,255,255,.1);border-radius:99px;overflow:hidden;max-width:420px">
-              <div style="width:${percent}%;height:100%;background:linear-gradient(90deg,var(--coral),#F59E0B);transition:width .6s"></div>
-            </div>
-          </div>
-          <button class="btn btn-coral" id="d-go-pcp">
-            ${scored === 0 ? 'Start invullen' : 'Verder invullen'} ${ICONS.arrowRight}
-          </button>
-        </div>
+  // ==========================================================
+  // LAB / OEFENMATERIAAL — placeholders (later uitwerken)
+  // ==========================================================
+  function comingSoon(title, lead, icon) {
+    qs('#main').innerHTML = `<div class="fade-up">
+      <div class="eyebrow">${escapeHtml(title)}</div>
+      <h1 class="page-title">${escapeHtml(title)}.</h1>
+      <p class="page-lead">${escapeHtml(lead)}</p>
+      <div class="card" style="border-style:dashed;text-align:center;padding:60px 24px;color:var(--muted)">
+        <div style="display:flex;justify-content:center;margin-bottom:14px;color:var(--navy)">${icon}</div>
+        <div class="font-display" style="font-size:20px;color:var(--navy-deep);margin-bottom:6px">Binnenkort beschikbaar</div>
+        <div style="font-size:13px">Dit onderdeel wordt later uitgewerkt.</div>
       </div>
+    </div>`;
+  }
+  function renderLab() {
+    comingSoon('Lab', 'Experimenteren en verdiepen.', ICONS.sparkles);
+  }
+  function renderOefenmateriaal() {
+    comingSoon('Oefenmateriaal', 'Oefeningen en materiaal om mee aan de slag te gaan.', ICONS.fileText);
+  }
 
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:24px">
-        <button class="dash-stat" id="d-go-fb">
-          <div class="icon-wrap" style="background:rgba(30,74,122,.15);color:var(--navy)">${ICONS.users}</div>
-          <div style="flex:1;text-align:left">
-            <div class="t">360° Feedback</div>
-            <div class="d">${sessions.length} sessie(s) · ${totalResponses} respons(en)</div>
-          </div>
-          <span style="color:var(--muted)">${ICONS.arrowRight}</span>
-        </button>
+  // ==========================================================
+  // ONTWIKKELING — shell met sub-tabs (PCP + 360° feedback)
+  // ==========================================================
+  function renderOntwikkeling() {
+    const parts = hashParts(); // ['ontwikkeling', sub, ...]
+    const sub = parts[1] === 'feedback' ? 'feedback' : 'pcp';
 
-        <button class="dash-stat" id="d-go-pcp2">
-          <div class="icon-wrap" style="background:rgba(229,107,62,.15);color:var(--coral-dark)">${ICONS.target}</div>
-          <div style="flex:1;text-align:left">
-            <div class="t">PCP — Competenties</div>
-            <div class="d">${scored}/${total} competenties gescoord (${percent}%)</div>
-          </div>
-          <span style="color:var(--muted)">${ICONS.arrowRight}</span>
-        </button>
+    // Feedback-subschermen (nieuw/beheer) vullen het hele scherm
+    if (sub === 'feedback' && parts[2] === 'new') return renderNewSession();
+    if (sub === 'feedback' && parts[2] === 'manage' && parts[3]) return renderManageSession(parts[3]);
+
+    qs('#main').innerHTML = `<div class="fade-up">
+      <div class="eyebrow">Ontwikkeling</div>
+      <div class="tabs" id="ontw-tabs" style="margin-top:10px">
+        <button class="tab ${sub === 'pcp' ? 'active' : ''}" data-sub="pcp">PCP — Competenties</button>
+        <button class="tab ${sub === 'feedback' ? 'active' : ''}" data-sub="feedback">360° Feedback</button>
       </div>
-    `;
-    qs('#d-go-pcp').onclick = () => go('pcp');
-    qs('#d-go-pcp2').onclick = () => go('pcp');
-    qs('#d-go-fb').onclick = () => go('feedback');
+      <div id="ontw-body"></div>
+    </div>`;
+    qsa('#ontw-tabs .tab').forEach((b) =>
+      b.addEventListener('click', () => go('ontwikkeling', b.dataset.sub)));
+
+    if (sub === 'feedback') renderFeedbackHub();
+    else renderPCP(parts[2]);
   }
 
   // ==========================================================
   // PCP MODULE
   // ==========================================================
-  async function renderPCP() {
-    const main = qs('#main');
-    main.innerHTML = `<div class="fade-up">
-      <div class="eyebrow">Pilot Career Plan</div>
-      <h1 class="page-title">Competentieprofiel.</h1>
+  async function renderPCP(catId) {
+    const target = qs('#ontw-body');
+    target.innerHTML = `<div class="fade-up">
+      <h1 class="page-title" style="font-size:30px;margin-top:6px">Competentieprofiel.</h1>
       <p class="page-lead">Scoor per competentie waar je nu staat. Alles wordt automatisch opgeslagen.</p>
       <div class="tabs" id="pcp-tabs"></div>
       <div id="pcp-body"><div class="spinner" style="margin:80px auto"></div></div>
@@ -151,7 +184,7 @@
       bag[r.competence_id] = r;
     });
 
-    const activeId = (location.hash.split('/')[1]) || COMPETENCE_CATEGORIES[0].id;
+    const activeId = catId || COMPETENCE_CATEGORIES[0].id;
 
     // Render category tabs
     qs('#pcp-tabs').innerHTML = COMPETENCE_CATEGORIES.map((cat) => `
@@ -160,7 +193,7 @@
         ${cat.title}
       </button>`).join('');
     qsa('#pcp-tabs .tab').forEach((b) => {
-      b.addEventListener('click', () => go('pcp', b.dataset.cat));
+      b.addEventListener('click', () => go('ontwikkeling', 'pcp/' + b.dataset.cat));
     });
 
     const cat = COMPETENCE_CATEGORIES.find((c) => c.id === activeId) || COMPETENCE_CATEGORIES[0];
@@ -310,22 +343,12 @@
   }
 
   // ==========================================================
-  // FEEDBACK MODULE — hub, new, manage
+  // FEEDBACK MODULE — hub, new, manage (binnen Ontwikkeling)
   // ==========================================================
-  async function renderFeedback() {
-    const [, sub, code] = (location.hash || '').split('/');
-    // feedback/new            -> new session
-    // feedback/manage/CODE    -> manage + responses
-    if (sub === 'new')    return renderNewSession();
-    if (sub === 'manage' && code) return renderManageSession(code);
-    return renderFeedbackHub();
-  }
-
   async function renderFeedbackHub() {
-    const main = qs('#main');
+    const main = qs('#ontw-body');
     main.innerHTML = `<div class="fade-up">
-      <div class="eyebrow">360° feedback</div>
-      <h1 class="page-title">Feedback van je omgeving.</h1>
+      <h1 class="page-title" style="font-size:30px;margin-top:6px">Feedback van je omgeving.</h1>
       <p class="page-lead">Vraag minstens 4 mensen uit jouw omgeving (collega's, leidinggevende, vrienden) om je te beoordelen op 11 pilotencompetenties. Zelf vul je ook in. Daarna zie je het rapport naast elkaar.</p>
 
       <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:20px;margin-bottom:32px">
@@ -351,7 +374,7 @@
       <div id="sess-list"><div class="spinner" style="margin:40px auto"></div></div>
     </div>`;
 
-    qs('#fb-new').onclick = () => go('feedback', 'new');
+    qs('#fb-new').onclick = () => go('ontwikkeling', 'feedback/new');
     const tryJoin = async () => {
       const code = qs('#join-code').value.trim().toUpperCase();
       if (!code) return;
@@ -394,7 +417,7 @@
           </div>
           <button class="btn btn-primary btn-sm" data-act="open">Openen</button>
           <button class="btn btn-ghost btn-sm" data-act="del" title="Verwijder">${ICONS.trash}</button>`;
-        card.querySelector('[data-act=open]').onclick = () => go('feedback', 'manage/' + s.code);
+        card.querySelector('[data-act=open]').onclick = () => go('ontwikkeling', 'feedback/manage/' + s.code);
         card.querySelector('[data-act=del]').onclick = async () => {
           if (!confirm('Sessie en alle antwoorden verwijderen?')) return;
           try { await HopApi.deleteSession(s.code); renderFeedbackHub(); toast('Sessie verwijderd', 'success'); }
@@ -413,7 +436,7 @@
   function renderNewSession() {
     const main = qs('#main');
     main.innerHTML = `<div class="fade-up" style="max-width:640px">
-      <a href="#feedback" class="back-link">${ICONS.chevLeft} Terug</a>
+      <a href="#ontwikkeling/feedback" class="back-link">${ICONS.chevLeft} Terug</a>
       <h1 class="page-title" style="font-size:38px">Nieuwe feedbackronde.</h1>
       <p class="page-lead">Over wie gaat deze feedback? Daarna maken we de code waarmee anderen kunnen invullen.</p>
 
@@ -442,7 +465,7 @@
         const code = genSessionCode(name);
         await HopApi.createSession({ code, subject_name: name, subject_role: role, owner_id: session.user_id });
         toast('Sessie aangemaakt', 'success');
-        go('feedback', 'manage/' + code);
+        go('ontwikkeling', 'feedback/manage/' + code);
       } catch (e) {
         console.error(e);
         toast('Kon sessie niet aanmaken: ' + e.message, 'error', 3000);
@@ -460,14 +483,14 @@
     let s;
     try { s = await HopApi.getSession(code); } catch (e) { /* noop */ }
     if (!s) {
-      main.innerHTML = `<div class="card" style="color:var(--danger)">Sessie "${escapeHtml(code)}" niet gevonden. <a href="#feedback">Terug</a></div>`;
+      main.innerHTML = `<div class="card" style="color:var(--danger)">Sessie "${escapeHtml(code)}" niet gevonden. <a href="#ontwikkeling/feedback">Terug</a></div>`;
       return;
     }
 
     const shareUrl = `${location.origin}${location.pathname.replace(/portal\.html$/, '')}feedback.html?code=${encodeURIComponent(code)}`;
 
     main.innerHTML = `<div class="fade-up">
-      <a href="#feedback" class="back-link">${ICONS.chevLeft} Terug naar sessies</a>
+      <a href="#ontwikkeling/feedback" class="back-link">${ICONS.chevLeft} Terug naar sessies</a>
       <div class="eyebrow">Sessie ${escapeHtml(code)}</div>
       <h1 class="page-title" style="font-size:42px">${escapeHtml(s.subject_name)}.</h1>
       <p class="page-lead">${escapeHtml(s.subject_role || '')} · aangemaakt op ${formatDateLong(s.created_at)}</p>

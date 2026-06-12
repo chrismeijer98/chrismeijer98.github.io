@@ -280,7 +280,7 @@
           Je feedback voor <strong>${escapeHtml(state.session.subject_name)}</strong> is opgeslagen.
           ${state.isSelf ? 'Je kunt nu je rapport bekijken zodra de feedbackgevers hun deel ingevuld hebben.' : 'Dit draagt echt bij aan hun groei.'}
         </p>
-        <a href="${state.isSelf ? `portal.html#feedback/manage/${encodeURIComponent(state.session.code)}` : 'index.html'}" class="btn btn-primary">
+        <a href="${state.isSelf ? `portal.html#ontwikkeling/feedback/manage/${encodeURIComponent(state.session.code)}` : 'index.html'}" class="btn btn-primary">
           ${state.isSelf ? 'Terug naar sessie' : 'Sluit venster'}
         </a>
       </div>`;
