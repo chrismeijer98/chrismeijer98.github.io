@@ -4,6 +4,7 @@ Een statische webapp (HTML/CSS/JS) voor het Pilot Career Plan (PCP) en 360°
 feedback. Data wordt opgeslagen in **Supabase** (PostgreSQL) en de site wordt
 gehost via **GitHub Pages** — geen eigen server nodig.
 
+
 ## Structuur
 
 ```
