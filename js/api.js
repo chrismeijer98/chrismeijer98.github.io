@@ -3,72 +3,97 @@
 // ============================================================
 
 (function () {
+  // Eén gedeelde client (sessie wordt in localStorage bewaard en
+  // automatisch ververst). Belangrijk voor Auth + RLS.
+  let _client = null;
   function db() {
+    if (_client) return _client;
     const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.HOP_CONFIG;
-    return supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    _client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    return _client;
   }
 
   function guard(error) {
     if (error) throw error;
   }
 
-  async function hashPassword(password) {
-    const data = new TextEncoder().encode(password);
-    const buf  = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  // Naam -> synthetisch e-mailadres voor Supabase Auth.
+  // Moet identiek zijn aan loginSlug() in supabase/functions/admin-users.
+  function loginSlug(name) {
+    return String(name || '')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '');
+  }
+  function loginEmail(name) {
+    const domain = (window.HOP_CONFIG && window.HOP_CONFIG.AUTH_EMAIL_DOMAIN) || 'hop.local';
+    return loginSlug(name) + '@' + domain;
+  }
+
+  // Admin-acties lopen via de Edge Function (service-role, server-side).
+  function adminFnUrl() {
+    return window.HOP_CONFIG.SUPABASE_URL.replace(/\/$/, '') + '/functions/v1/admin-users';
+  }
+  async function callAdmin(action, payload, adminToken) {
+    const res = await fetch(adminFnUrl(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + window.HOP_CONFIG.SUPABASE_ANON_KEY,
+        'x-admin-token': adminToken || '',
+      },
+      body: JSON.stringify({ action, ...(payload || {}) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ('Serverfout (' + res.status + ')'));
+    return data;
   }
 
   const api = {
-    // ---- Auth ----
+    // ---- Auth (Supabase Auth; inloggen op naam via synthetisch e-mail) ----
     async loginUser({ full_name, password }) {
-      const hash = await hashPassword(password);
-      const { data, error } = await db()
+      const email = loginEmail(full_name);
+      const { data, error } = await db().auth.signInWithPassword({ email, password });
+      if (error || !data || !data.user) throw new Error('Naam of wachtwoord onjuist');
+      const { data: profile, error: pErr } = await db()
         .from('users')
-        .select('*')
-        .ilike('full_name', full_name)
-        .eq('password_hash', hash)
+        .select('id, full_name, role')
+        .eq('auth_id', data.user.id)
         .maybeSingle();
-      guard(error);
-      if (!data) throw new Error('Naam of wachtwoord onjuist');
-      return data;
+      if (pErr || !profile) {
+        await db().auth.signOut();
+        throw new Error('Account zonder gekoppeld profiel. Neem contact op met de beheerder.');
+      }
+      return profile;
     },
 
-    // ---- User management (admin) ----
-    async createUser({ full_name, role, password }) {
-      const hash = await hashPassword(password);
-      const { data, error } = await db()
-        .from('users')
-        .insert({ full_name, role, password_hash: hash })
-        .select()
-        .single();
-      guard(error);
-      return data;
+    async signOut() {
+      try { await db().auth.signOut(); } catch (e) { /* noop */ }
     },
 
-    async updatePassword({ user_id, password }) {
-      const hash = await hashPassword(password);
-      const { data, error } = await db()
-        .from('users')
-        .update({ password_hash: hash, updated_at: new Date().toISOString() })
-        .eq('id', user_id)
-        .select()
-        .single();
-      guard(error);
-      return data;
+    // True als er een geldige Supabase-sessie is (async).
+    async hasSession() {
+      const { data } = await db().auth.getSession();
+      return !!(data && data.session);
     },
 
-    async listUsers() {
-      const { data, error } = await db()
-        .from('users')
-        .select('id, full_name, role, created_at')
-        .order('created_at', { ascending: false });
-      guard(error);
-      return data;
+    // ---- User management (admin, via Edge Function met beheer-token) ----
+    async listUsers(adminToken) {
+      const { users } = await callAdmin('list', {}, adminToken);
+      return users || [];
     },
 
-    async deleteUser(id) {
-      const { error } = await db().from('users').delete().eq('id', id);
-      guard(error);
+    async createUser({ full_name, role, password }, adminToken) {
+      const { user } = await callAdmin('create', { full_name, role, password }, adminToken);
+      return user;
+    },
+
+    async updatePassword({ user_id, password }, adminToken) {
+      await callAdmin('set_password', { user_id, password }, adminToken);
+      return { ok: true };
+    },
+
+    async deleteUser(id, adminToken) {
+      await callAdmin('delete', { user_id: id }, adminToken);
     },
 
     // ---- Feedback sessions ----

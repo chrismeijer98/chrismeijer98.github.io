@@ -55,18 +55,14 @@
 
   <div class="login-card fade-up" style="animation-delay:.1s">
     <div class="login-title">Beheerder inloggen</div>
-    <div class="login-sub">Dit portaal is alleen voor beheerders.</div>
+    <div class="login-sub">Voer het beheer-token in om gebruikers te beheren.</div>
 
     <form id="admin-login-form">
       <div class="field">
-        <label class="field-label">Gebruikersnaam</label>
-        <input id="a-user" class="input" placeholder="admin" autocomplete="username" required>
+        <label class="field-label">Beheer-token</label>
+        <input id="a-token" class="input" type="password" placeholder="••••••••" autocomplete="off" required>
       </div>
-      <div class="field">
-        <label class="field-label">Wachtwoord</label>
-        <input id="a-pass" class="input" type="password" placeholder="••••••••" autocomplete="current-password" required>
-      </div>
-      <p class="err-msg" id="login-err">Gebruikersnaam of wachtwoord onjuist.</p>
+      <p class="err-msg" id="login-err">Beheer-token onjuist.</p>
       <button type="submit" class="btn btn-primary btn-lg" style="width:100%;justify-content:center;margin-top:8px">
         Inloggen
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
@@ -170,12 +166,10 @@
 <script src="js/utils.js"></script>
 <script>
 (function () {
-  const ADMIN_USER = 'admin';
-  const ADMIN_PASS = 'admin';
-  const SESSION_KEY = 'hop_admin_session';
+  const SESSION_KEY = 'hop_admin_token';
 
-  const isLoggedIn = () => localStorage.getItem(SESSION_KEY) === '1';
-  const adminLogin  = () => localStorage.setItem(SESSION_KEY, '1');
+  const getToken    = () => localStorage.getItem(SESSION_KEY) || '';
+  const setToken    = (t) => localStorage.setItem(SESSION_KEY, t);
   const adminLogout = () => { localStorage.removeItem(SESSION_KEY); showLogin(); };
 
   function showLogin() {
@@ -188,18 +182,24 @@
     loadUsers();
   }
 
-  // ---- Login ----
-  document.getElementById('admin-login-form').addEventListener('submit', (e) => {
+  // ---- Login (valideert het beheer-token via de Edge Function) ----
+  document.getElementById('admin-login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const u   = document.getElementById('a-user').value.trim();
-    const p   = document.getElementById('a-pass').value;
+    const token = document.getElementById('a-token').value.trim();
     const err = document.getElementById('login-err');
-    if (u === ADMIN_USER && p === ADMIN_PASS) {
-      err.style.display = 'none';
-      adminLogin();
+    const btn = e.target.querySelector('button[type=submit]');
+    const orig = btn.innerHTML;
+    err.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Controleren…';
+    try {
+      await HopApi.listUsers(token);        // werpt 401 bij onjuist token
+      setToken(token);
       showDashboard();
-    } else {
+    } catch (ex) {
+      err.textContent = /geautoriseerd|401/i.test(ex.message) ? 'Beheer-token onjuist.' : ('Fout: ' + ex.message);
       err.style.display = 'block';
+    } finally {
+      btn.disabled = false; btn.innerHTML = orig;
     }
   });
 
@@ -211,7 +211,7 @@
     const countEl = document.getElementById('user-count');
     wrap.innerHTML = '<div class="spinner" style="margin:40px auto"></div>';
     try {
-      const users = await HopApi.listUsers();
+      const users = await HopApi.listUsers(getToken());
       countEl.textContent = users.length + ' gebruiker' + (users.length !== 1 ? 's' : '');
 
       if (!users.length) {
@@ -279,6 +279,7 @@
       });
 
     } catch (err) {
+      if (/geautoriseerd|401/i.test(err.message)) { adminLogout(); return; }
       wrap.innerHTML = `<div class="empty-state"><p style="color:var(--danger);font-size:14px">Fout: ${esc(err.message)}</p></div>`;
     }
   }
@@ -303,7 +304,7 @@
     btn.disabled = true; btn.textContent = 'Bezig…';
 
     try {
-      await HopApi.createUser({ full_name: name, role, password: pass });
+      await HopApi.createUser({ full_name: name, role, password: pass }, getToken());
       document.getElementById('u-name').value = '';
       document.getElementById('u-pass').value = '';
       document.getElementById('u-role').value = 'pilot';
@@ -325,7 +326,7 @@
     const btn = document.querySelector(`[data-pw-save="${id}"]`);
     btn.disabled = true; btn.textContent = 'Opslaan…';
     try {
-      await HopApi.updatePassword({ user_id: id, password: pass });
+      await HopApi.updatePassword({ user_id: id, password: pass }, getToken());
       togglePwRow(id, false);
       HopUtil.toast('Wachtwoord bijgewerkt', 'success');
     } catch (err) {
@@ -339,7 +340,7 @@
   async function deleteUser(id, name) {
     if (!confirm(`Gebruiker "${name}" verwijderen? Dit kan niet ongedaan worden gemaakt.`)) return;
     try {
-      await HopApi.deleteUser(id);
+      await HopApi.deleteUser(id, getToken());
       await loadUsers();
       HopUtil.toast(name + ' verwijderd');
     } catch (err) {
@@ -367,7 +368,7 @@
   });
 
   // ---- Boot ----
-  isLoggedIn() ? showDashboard() : showLogin();
+  getToken() ? showDashboard() : showLogin();
 })();
 </script>
 </body>
