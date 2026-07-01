@@ -1,0 +1,72 @@
+{
+  "categoryId": "engels-communicatie",
+  "categoryNumber": 6,
+  "name": "Engels & Communicatie",
+  "description": "ICAO Level 4 is het absolute minimum voor commerciële piloten. Kandidaten die vroeg oefenen met luchtvaartengels bouwen een natuurlijke vaardigheid op die in de selectie opvalt.",
+  "refreshLogic": "Gebruik echte callsigns en vliegvelden. Wissel accenten in luisteroefeningen (Duits, Brits, Frans accent). Voeg afleiding toe: statische ruis, snelle spraak, overlappende transmissies.",
+  "exercises": [
+    {
+      "exerciseId": "atc-clearance-begrijpen",
+      "name": "Oefening 1 — ATC clearance begrijpen",
+      "level": 1,
+      "context": "KLM1234, cleared to Amsterdam via SUGOL departure, climb to FL080, squawk 2341.",
+      "questions": [
+        { "id": "E1-1", "question": "Wat is de squawkcode?", "answer": "2341" },
+        { "id": "E1-2", "question": "Welke hoogte?", "answer": "FL080" },
+        { "id": "E1-3", "question": "Via welke SID?", "answer": "SUGOL departure" }
+      ]
+    },
+    {
+      "exerciseId": "correcte-readback",
+      "name": "Oefening 2 — Correcte readback",
+      "level": 2,
+      "context": "TRA456, descend to 3000 feet, QNH 1012, report outer marker.",
+      "questionType": "readback",
+      "answer": "Descend to 3000 feet, QNH 1012, wilco outer marker, TRA456.",
+      "scoringPoints": "Callsign aan het eind, alle informatie herhaald, correcte volgorde."
+    },
+    {
+      "exerciseId": "fout-in-readback-detecteren",
+      "name": "Oefening 3 — Fout in readback detecteren",
+      "level": 2,
+      "context": "Controller: 'EZY789, turn left heading 270, descend to 4000 feet.' Piloot leest terug: 'Turn RIGHT heading 270, descend to 4000 feet, EZY789.'",
+      "questionType": "error_detection",
+      "error": "Links werd rechts.",
+      "task": "Kandidaat markeert de fout en schrijft de correcte readback."
+    },
+    {
+      "exerciseId": "icao-alfabet",
+      "name": "Oefening 4 — ICAO alfabet",
+      "level": 1,
+      "questions": [
+        {
+          "id": "V62",
+          "questionType": "open",
+          "question": "Spel het woord AMSTERDAM via het ICAO-alfabet.",
+          "answer": "Alpha — Mike — Sierra — Tango — Echo — Romeo — Delta — Alpha — Mike"
+        }
+      ]
+    },
+    {
+      "exerciseId": "positierapport-formuleren",
+      "name": "Oefening 5 — Eigen positierapport formuleren",
+      "level": 3,
+      "situation": {
+        "callsign": "KLM123",
+        "positie": "boven SUGOL",
+        "hoogte": "FL120",
+        "bestemming": "Amsterdam",
+        "geschatteAankomst": "14:35"
+      },
+      "answer": "Amsterdam Approach, KLM123, position SUGOL, flight level one two zero, estimating Amsterdam at one four three five."
+    },
+    {
+      "exerciseId": "noodcommunicatie-formuleren",
+      "name": "Oefening 6 — Noodcommunicatie formuleren",
+      "level": 3,
+      "situation": "Engine failure, 3000 voet, 10 nm van de baan.",
+      "structure": "Mayday Mayday Mayday / [callsign] / [situatie] / [positie] / [bedoelingen] / [souls on board] / [brandstof]",
+      "answer": "Mayday Mayday Mayday, KLM123, engine failure, 10 miles north of EHAM, 3000 feet, requesting immediate return, 6 souls on board, 2 hours fuel."
+    }
+  ]
+}

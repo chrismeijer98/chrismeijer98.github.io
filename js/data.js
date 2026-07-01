@@ -222,6 +222,21 @@ window.FB_SCALE_LABELS = ['(Bijna) nooit', 'Soms', 'Regelmatig', 'Vaak', '(Bijna
 // alvast voorbereid maar staat 'binnenkort' (available:false).
 // -------------------------------------------------------------
 // -------------------------------------------------------------
+// OEFENINGEN — categorie-manifest (volgorde, kleur, soort)
+// Volledige inhoud staat in js/oefendata.js (window.OEFEN_DATA).
+// kind: 'questions' | 'subareas' = speelbaar (fase 2);
+//       'sjt' (fase 3) en 'interactive' (fase 4) volgen later.
+// -------------------------------------------------------------
+window.OEFEN_CATEGORIES = [
+  { id: 'cognitief',            number: 1, name: 'Cognitieve Vaardigheid',        color: '#1E4A7A', kind: 'questions' },
+  { id: 'coordinatie',          number: 2, name: 'Hand-Voet-Oog Coördinatie',     color: '#15803D', kind: 'interactive' },
+  { id: 'compass',              number: 3, name: 'COMPASS-voorbereiding',         color: '#C8501E', kind: 'questions' },
+  { id: 'sjt-crm',              number: 4, name: 'Situational Judgement & CRM',    color: '#7C3AED', kind: 'sjt' },
+  { id: 'luchtvaartkennis',     number: 5, name: 'Luchtvaartkennis',              color: '#D97706', kind: 'subareas' },
+  { id: 'engels-communicatie',  number: 6, name: 'Engels & Communicatie',         color: '#B91C1C', kind: 'interactive' },
+];
+
+// -------------------------------------------------------------
 // AGENDA — vaste evenementcategorieën
 // -------------------------------------------------------------
 window.EVENT_CATEGORIES = [

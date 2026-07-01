@@ -288,6 +288,25 @@ textarea.input{resize:vertical;min-height:80px;line-height:1.55}
 .chat-name{font-size:11px;font-weight:700;color:var(--coral-dark);margin-bottom:2px}
 .chat-time{font-size:10px;opacity:.6;margin-top:3px;text-align:right}
 
+/* ========== Oefeningen ========== */
+.oef-switch{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--navy-deep);cursor:pointer;flex-shrink:0}
+.oef-switch input{width:16px;height:16px;accent-color:#15803D}
+.oef-progress{margin:6px 0 20px}
+.oef-bar{height:8px;background:var(--sand);border-radius:99px;overflow:hidden}
+.oef-bar>div{height:100%;background:linear-gradient(90deg,var(--coral),#F59E0B);transition:width .3s}
+.oef-context{font-size:13px;color:var(--muted);background:var(--cream);border-left:3px solid var(--sand);padding:10px 12px;border-radius:8px;margin-bottom:14px;white-space:pre-line}
+.oef-question{font-size:17px;font-weight:600;color:var(--navy-deep);line-height:1.5;margin-bottom:16px;white-space:pre-line}
+.oef-opts{display:flex;flex-direction:column;gap:10px}
+.oef-opt{text-align:left;padding:13px 16px;border:1px solid var(--sand);border-radius:10px;font-size:14px;color:var(--ink);background:white;transition:border-color .12s,background .12s}
+.oef-opt:not(:disabled):hover{border-color:var(--navy)}
+.oef-opt.good{border-color:#15803D;background:rgba(21,128,61,.1);color:#15803D;font-weight:600}
+.oef-opt.bad{border-color:var(--danger);background:rgba(185,28,28,.08);color:var(--danger)}
+.oef-verdict{font-weight:700;margin:16px 0 6px;display:flex;align-items:center;gap:6px}
+.oef-verdict.good{color:#15803D}
+.oef-verdict.bad{color:var(--danger)}
+.oef-answer{font-size:14px;margin:6px 0}
+.oef-expl{font-size:13px;color:var(--muted);line-height:1.6;background:var(--cream);padding:10px 12px;border-radius:8px;margin-top:8px;white-space:pre-line}
+
 /* ========== Feedback / session UI ========== */
 .code-hero{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:48px;font-weight:700;letter-spacing:.1em;color:white}
 .link-box{background:rgba(255,255,255,.08);border:1px dashed rgba(255,255,255,.25);border-radius:8px;padding:10px 14px;font-size:12px;font-family:ui-monospace,monospace;cursor:pointer;word-break:break-all;color:rgba(255,255,255,.85)}

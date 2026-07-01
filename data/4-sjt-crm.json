@@ -1,0 +1,108 @@
+{
+  "categoryId": "sjt-crm",
+  "categoryNumber": 4,
+  "name": "Situational Judgement & CRM",
+  "description": "Meet hoe een kandidaat denkt en reageert in sociale en professionele situaties in de cockpit en daarbuiten. Geen absoluut goed/fout — wel een duidelijk profiel van gedragsstijl en CRM-inzicht.",
+  "scoringGuide": [
+    { "points": 4, "meaning": "Optimaal CRM-gedrag — assertief, respectvol, veiligheid voorop" },
+    { "points": 3, "meaning": "Acceptabel maar niet ideaal — kleine omissie of omweg" },
+    { "points": 2, "meaning": "Twijfelachtig — werkt mogelijk maar mist een kernprincipe" },
+    { "points": 1, "meaning": "Duidelijk ongewenst — passief, gevaarlijk of buiten protocol" }
+  ],
+  "refreshLogic": "Verander de rol (soms captain, soms co-piloot, soms grondpersoneel). Wissel de druk (tijdslimiet, meerdere problemen tegelijk). Voeg persoonlijkheidsfactoren toe zoals een agressieve passagier of een uitgeputte captain.",
+  "questions": [
+    {
+      "id": "V37",
+      "level": 2,
+      "questionType": "sjt",
+      "question": "Je bent co-piloot. De gezagvoerder nadert de landingsbaan maar is duidelijk te hoog en te snel. Hij lijkt het niet in de gaten te hebben. Wat doe je?",
+      "options": [
+        { "label": "A) Niets zeggen — hij is de gezagvoerder", "points": 1 },
+        { "label": "B) Wachten tot hij het zelf opmerkt", "points": 2 },
+        { "label": "C) Rustig maar duidelijk zeggen: 'Captain, ik zie dat we hoog en snel zijn, overweeg je een doorstart?'", "points": 4 },
+        { "label": "D) Direct zelf ingrijpen en het vliegtuig overnemen", "points": 2 }
+      ],
+      "bestAnswer": "C",
+      "explanation": "Assertief maar respectvol. De gezagvoerder behoudt het overzicht en de beslissing."
+    },
+    {
+      "id": "V38",
+      "level": 2,
+      "questionType": "sjt",
+      "question": "Na een lange nachtvlucht voelt je captain zich duidelijk niet lekker. Hij wil toch doorvliegen. Wat doe je?",
+      "options": [
+        { "label": "A) Akkoord gaan — hij weet zelf wat hij kan", "points": 1 },
+        { "label": "B) Het melden bij de purser maar niet bij de captain", "points": 2 },
+        { "label": "C) Direct operaties bellen zonder de captain te informeren", "points": 2 },
+        { "label": "D) Met de captain in gesprek gaan over hoe hij zich voelt, samen beslissen, eventueel operaties informeren", "points": 4 }
+      ],
+      "bestAnswer": "D",
+      "explanation": "Samenwerken en transparantie. Niemand passeren, maar veiligheid wel serieus nemen."
+    },
+    {
+      "id": "V39",
+      "level": 2,
+      "questionType": "sjt",
+      "question": "Tijdens de briefing merk je dat de captain een fout maakt in de brandstofberekening. Wat doe je?",
+      "options": [
+        { "label": "A) Niets zeggen — misschien begrijp jij het niet goed", "points": 1 },
+        { "label": "B) Na de briefing stiekem de berekening zelf aanpassen", "points": 2 },
+        { "label": "C) Hem direct onderbreken en zeggen dat hij het fout heeft", "points": 2 },
+        { "label": "D) Na de briefing rustig zeggen: 'Captain, ik kom tot een andere berekening — kunnen we dat samen nakijken?'", "points": 4 }
+      ],
+      "bestAnswer": "D",
+      "explanation": "Geen confrontatie, geen omzeiling — transparant en constructief."
+    },
+    {
+      "id": "V40",
+      "level": 2,
+      "questionType": "sjt",
+      "question": "Je bent net begonnen als co-piloot. De captain wijkt af van de standaardprocedure. Hij heeft meer ervaring. Wat doe je?",
+      "options": [
+        { "label": "A) Niets — hij weet meer dan jij", "points": 1 },
+        { "label": "B) De afwijking melden aan de vluchttoren", "points": 1 },
+        { "label": "C) De afwijking opschrijven voor later en er niets van zeggen", "points": 2 },
+        { "label": "D) Rustig vragen: 'Captain, ik zie dat we afwijken van de standaard — heb je een specifieke reden zodat ik het begrijp?'", "points": 4 }
+      ],
+      "bestAnswer": "D",
+      "explanation": "Juniorstatus is nooit een reden om te zwijgen over veiligheidszaken."
+    },
+    {
+      "id": "V41",
+      "level": 2,
+      "questionType": "sjt",
+      "question": "Een passagier meldt rookgeur via de purser. De captain zegt dat het onzin is. Wat doe je?",
+      "options": [
+        { "label": "A) De captain vertrouwen en niets doen", "points": 1 },
+        { "label": "B) Zelf even de cabine ingaan", "points": 3 },
+        { "label": "C) Aandringen bij de captain, bij weigering het rookprotocol volgen", "points": 4 },
+        { "label": "D) Direct een noodlandingsprocedure inzetten", "points": 2 }
+      ],
+      "bestAnswer": "C",
+      "explanation": "Rook aan boord is een serieuze melding — protocol volgt, niet de mening van de captain."
+    },
+    {
+      "id": "V42",
+      "level": 2,
+      "questionType": "sjt",
+      "question": "De controller geeft een ingewikkelde clearance snel en onduidelijk. Wat doe je?",
+      "options": [
+        { "label": "A) Je schrijft op wat je dacht te horen en leest het terug", "points": 2 },
+        { "label": "B) Je vraagt de controller om de clearance te herhalen", "points": 4 },
+        { "label": "C) Je zegt niets en neemt aan dat je het goed begrepen hebt", "points": 1 },
+        { "label": "D) Je vraagt de captain of hij het ook gehoord heeft", "points": 3 }
+      ],
+      "bestAnswer": "B",
+      "explanation": "Readback van een onzekere clearance is verplicht en professioneel. Nooit raden."
+    },
+    {
+      "id": "V43",
+      "level": 3,
+      "questionType": "priority_ranking",
+      "question": "Vier dingen tegelijk: 1. Passagier is ziek (via purser) 2. ATC vraagt koerswijziging te bevestigen 3. Systeemwaarschuwing licht op 4. Captain vraagt je iets te berekenen. In welke volgorde pak je dit aan?",
+      "options": null,
+      "answer": "3 (veiligheid) → 2 (ATC bevestigen) → 1 (purser informeren) → 4 (berekening)",
+      "explanation": "Prioriteit: vliegtuigveiligheid eerst, communicatie tweede, medisch derde, administratief laatste."
+    }
+  ]
+}

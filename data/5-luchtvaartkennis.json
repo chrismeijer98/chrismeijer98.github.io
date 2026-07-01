@@ -1,0 +1,195 @@
+{
+  "categoryId": "luchtvaartkennis",
+  "categoryNumber": 5,
+  "name": "Luchtvaartkennis",
+  "description": "De feitelijke kennisbasis die nodig is voor de ATPL-studie, selectiegesprekken en vliegschooltoelating. Onderverdeeld in vier subgebieden.",
+  "refreshLogic": "Gebruik actuele METAR-strings van echte vliegvelden (EHAM, EGLL, KJFK). Wissel vliegtuigtypes in de vragen. Voeg edge cases toe bij regelgeving. Verhoog moeilijkheid door meerdere subgebieden te combineren in één vraag.",
+  "subareas": [
+    {
+      "subareaId": "meteorologie",
+      "name": "5A — Meteorologie",
+      "questions": [
+        {
+          "id": "V44",
+          "level": 1,
+          "questionType": "multiple_choice",
+          "question": "Wat is een cumulonimbus (CB)?",
+          "options": ["A) Een laaghangende mist", "B) Een onweerswolk die zich verticaal uitstrekt tot soms 18 km hoogte", "C) Een cirruswolk", "D) Een bewolkingslaag op middelhoogte"],
+          "answer": "B",
+          "explanation": "CB-wolken zijn extreem gevaarlijk vanwege turbulentie, ijsafzetting, bliksem en hagel."
+        },
+        {
+          "id": "V45",
+          "level": 1,
+          "questionType": "multiple_choice",
+          "question": "Wat betekent OVC in een METAR?",
+          "options": ["A) Overcast — meer dan 7/8 bewolking", "B) Occasional visibility", "C) Onbekende cloudbase", "D) Only vertical clouds"],
+          "answer": "A) Overcast",
+          "explanation": "FEW = 1-2/8, SCT = 3-4/8, BKN = 5-7/8, OVC = 8/8."
+        },
+        {
+          "id": "V46",
+          "level": 2,
+          "questionType": "open",
+          "question": "METAR: EHAM 121250Z 27015KT 9999 FEW020 SCT060 BKN090 12/08 Q1013. Wat is de windrichting en sterkte?",
+          "options": null,
+          "answer": "Wind uit 270 graden (west) met 15 knots",
+          "explanation": "27015KT = 270 graden, 15 knots."
+        },
+        {
+          "id": "V47",
+          "level": 2,
+          "questionType": "open",
+          "question": "METAR: EHAM 121250Z 27015KT 9999 FEW020 SCT060 BKN090 12/08 Q1013. Wat is de dauwpunttemperatuur?",
+          "options": null,
+          "answer": "8 graden Celsius",
+          "explanation": "12/08 = temperatuur 12 graden, dauwpunt 8 graden."
+        },
+        {
+          "id": "V48",
+          "level": 2,
+          "questionType": "open",
+          "question": "Wat is windshear en waarom is het gevaarlijk voor vliegtuigen?",
+          "options": null,
+          "answer": "Windshear is een plotselinge verandering van windsnelheid en/of richting over een korte afstand. Gevaarlijk omdat het de lift plotseling kan doen afnemen, met name in de nadering of kort na de start.",
+          "explanation": null
+        },
+        {
+          "id": "V49",
+          "level": 3,
+          "questionType": "open",
+          "question": "Wat is een microburst en in welke vliegfase is het het gevaarlijkst?",
+          "options": null,
+          "answer": "Een microburst is een sterke neerwaartse luchtstroom die bij de grond uitwaaiert. Gevaarlijkst bij start en landing: eerst een schijnbare headwind (meer lift), gevolgd door een plotselinge downwind die lift wegneemt.",
+          "explanation": null
+        }
+      ]
+    },
+    {
+      "subareaId": "navigatie",
+      "name": "5B — Navigatie",
+      "questions": [
+        {
+          "id": "V50",
+          "level": 1,
+          "questionType": "multiple_choice",
+          "question": "Wat meet een VOR?",
+          "options": ["A) Hoogte", "B) Magnetische richting ten opzichte van het VOR-station", "C) Afstand tot de baan", "D) Windrichting"],
+          "answer": "B",
+          "explanation": "VOR = VHF Omnidirectional Range — geeft een radiale (richting) van het station."
+        },
+        {
+          "id": "V51",
+          "level": 1,
+          "questionType": "multiple_choice",
+          "question": "Wat is de Track?",
+          "options": ["A) De richting van de neus", "B) De werkelijke weg die het vliegtuig over de grond aflegt", "C) De magnetische koers", "D) De windcorrectiehoek"],
+          "answer": "B",
+          "explanation": "Track = ground track. Heading + wind = track."
+        },
+        {
+          "id": "V52",
+          "level": 2,
+          "questionType": "open",
+          "question": "Vliegtuig vliegt op heading 090. Crosswind uit 180 graden (van het zuiden) met 20 knots. Naar welke kant drift het vliegtuig?",
+          "options": null,
+          "answer": "Naar het noorden",
+          "explanation": "Wind van het zuiden duwt het vliegtuig northward."
+        },
+        {
+          "id": "V53",
+          "level": 2,
+          "questionType": "open",
+          "question": "Afstand: 240 nm. Snelheid: 120 knots. Hoelang duurt de vlucht?",
+          "options": null,
+          "answer": "2 uur",
+          "explanation": "240 / 120 = 2 uur."
+        },
+        {
+          "id": "V54",
+          "level": 3,
+          "questionType": "open",
+          "question": "Koers 045 graden, afstand 180 nm, TAS 150 knots. Wind 360/30 knots. Bereken de wind correction angle (benadering) en de groundspeed.",
+          "options": null,
+          "answer": "WCA ≈ 8 graden naar links. Tegenwindcomponent ≈ 21 knots. Groundspeed ≈ 129 knots.",
+          "explanation": "Kruiswindcomponent: 30 x sin(45°) ≈ 21 knots. Tegenwind: 30 x cos(45°) ≈ 21 knots."
+        }
+      ]
+    },
+    {
+      "subareaId": "regelgeving",
+      "name": "5C — Regelgeving",
+      "questions": [
+        {
+          "id": "V55",
+          "level": 1,
+          "questionType": "multiple_choice",
+          "question": "Wat is de transpondercode voor een noodgeval?",
+          "options": ["A) 7600", "B) 7700", "C) 7500", "D) 1200"],
+          "answer": "B) 7700",
+          "explanation": "7700 = nood. 7600 = radiocontact verloren. 7500 = kaping."
+        },
+        {
+          "id": "V56",
+          "level": 1,
+          "questionType": "multiple_choice",
+          "question": "Wat is luchtruimklasse A?",
+          "options": ["A) Vrij luchtruim voor iedereen", "B) Alleen IFR-vluchten, ATC-klaring verplicht", "C) VFR mogelijk zonder klaring", "D) Militair luchtruim"],
+          "answer": "B",
+          "explanation": "Klasse A = hoogste gecontroleerde luchtruim. Alleen IFR, altijd klaring nodig."
+        },
+        {
+          "id": "V57",
+          "level": 2,
+          "questionType": "open",
+          "question": "Wat is het verschil tussen Mayday en Pan-Pan?",
+          "options": null,
+          "answer": "Mayday = direct levensgevaar, onmiddellijke hulp nodig. Pan-Pan = urgente situatie maar nog geen direct levensgevaar.",
+          "explanation": null
+        },
+        {
+          "id": "V58",
+          "level": 3,
+          "questionType": "open",
+          "question": "Een piloot vliegt VFR en raakt onbedoeld in IMC (mist). Wat zijn zijn verplichtingen en opties?",
+          "options": null,
+          "answer": "VFR in IMC is illegaal en levensgevaarlijk. Opties: 180-gradensbocht terug naar VFR, noodklaring bij ATC aanvragen, Mayday uitsturen indien noodzakelijk.",
+          "explanation": null
+        }
+      ]
+    },
+    {
+      "subareaId": "vliegtuigkennis",
+      "name": "5D — Vliegtuigkennis",
+      "questions": [
+        {
+          "id": "V59",
+          "level": 1,
+          "questionType": "multiple_choice",
+          "question": "Wat doet een aileron?",
+          "options": ["A) Regelt de stijgsnelheid", "B) Regelt de rolbeweging om de langsas", "C) Remt het vliegtuig", "D) Vergroot de lift bij lage snelheid"],
+          "answer": "B",
+          "explanation": "Primair stuuroppervlak voor rollen. Werkt asymmetrisch: links omhoog = rechts omlaag."
+        },
+        {
+          "id": "V60",
+          "level": 2,
+          "questionType": "multiple_choice",
+          "question": "Wat doet een fowler flap bij uitklappen?",
+          "options": ["A) Vergroot alleen de camber", "B) Vergroot zowel vleugel oppervlakte als camber, verhoogt lift sterk", "C) Vergroot alleen de weerstand", "D) Vermindert de lift"],
+          "answer": "B",
+          "explanation": "Fowler flap schuift naar achteren én omlaag: meer oppervlak + meer camber."
+        },
+        {
+          "id": "V61",
+          "level": 3,
+          "questionType": "open",
+          "question": "Beschrijf wat er gebeurt tijdens een geïnduceerde stall in een bocht.",
+          "options": null,
+          "answer": "In een bocht neemt de benodigde lift toe (loadfactor). De effectieve stalsnelheid stijgt daardoor. Bij te langzaam vliegen of te hard trekken kan de kritische hoek van aanval eerder bereikt worden dan verwacht. Gevaarlijk bij lage hoogte in de naderingsdraaibocht.",
+          "explanation": null
+        }
+      ]
+    }
+  ]
+}

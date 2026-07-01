@@ -1,0 +1,63 @@
+{
+  "categoryId": "coordinatie",
+  "categoryNumber": 2,
+  "name": "Hand-Voet-Oog Coördinatie",
+  "description": "Meet hoe goed iemand motorisch en cognitief tegelijk kan presteren. Pilotenselecties testen dit actief via trackingapparatuur. De oefeningen hieronder zijn direct uitvoerbaar via de browser op het platform.",
+  "refreshLogic": "Pas de snelheid van het punt aan, de kleurfrequentie bij reactietaken, en de moeilijkheid van de sommen bij de dual task. Voeg geluidsignalen toe naast visuele. Wissel welke hand of toets waar voor is zodat kandidaten niet automatiseren.",
+  "exercises": [
+    {
+      "exerciseId": "enkelvoudige-tracking",
+      "name": "Oefening 1 — Enkelvoudige tracking",
+      "description": "Een punt beweegt over het scherm in een vloeiend maar onvoorspelbaar pad. De kandidaat houdt de cursor op het punt.",
+      "scoring": "Percentage van de tijd dat de cursor binnen 20px van het punt zit",
+      "durationSeconds": 60,
+      "levels": [
+        { "level": 1, "description": "Langzame beweging, voorspelbaar pad" },
+        { "level": 2, "description": "Wisselende snelheid" },
+        { "level": 3, "description": "Plotselinge richtingveranderingen en versnellingen" }
+      ],
+      "benchmarkGood": "Boven 80% nauwkeurigheid"
+    },
+    {
+      "exerciseId": "dubbele-tracking",
+      "name": "Oefening 2 — Dubbele tracking",
+      "description": "Twee punten tegelijk volgen. Linkerhand (A-toets) voor punt 1, rechterhand (L-toets) voor punt 2. Score per punt afzonderlijk plus gecombineerde score. Simuleert het verdelen van aandacht zoals in een cockpit vereist.",
+      "controls": { "punt1": "A-toets (linkerhand)", "punt2": "L-toets (rechterhand)" },
+      "scoring": "Score per punt afzonderlijk plus gecombineerde score"
+    },
+    {
+      "exerciseId": "reactiesnelheid-enkelvoudig",
+      "name": "Oefening 3 — Reactiesnelheid enkelvoudig",
+      "description": "Scherm wordt groen — kandidaat drukt zo snel mogelijk op spatie.",
+      "rounds": 20,
+      "scoring": "Gemiddelde reactietijd in milliseconden",
+      "benchmarks": [
+        { "label": "Uitstekend", "value": "Onder 250 ms" },
+        { "label": "Goed", "value": "250-350 ms" },
+        { "label": "Aandacht nodig", "value": "Boven 400 ms" }
+      ]
+    },
+    {
+      "exerciseId": "keuze-reactietaak",
+      "name": "Oefening 4 — Keuze-reactietaak",
+      "description": "Groen scherm = spatie. Rood scherm = R-toets. Blauw scherm = B-toets. Wisselend aangeboden.",
+      "rounds": 30,
+      "scoring": "Gemiddelde tijd + aantal fouten. Fouten tellen zwaarder dan langzaamheid."
+    },
+    {
+      "exerciseId": "go-no-go",
+      "name": "Oefening 5 — Go / No-go",
+      "description": "Scherm toont verschillende letters. Alleen bij de letter G zo snel mogelijk reageren — bij alle andere letters niets doen.",
+      "stimuli": 40,
+      "goStimuli": 10,
+      "scoring": "Correcte go's minus false alarms"
+    },
+    {
+      "exerciseId": "dual-task-tracking-rekenen",
+      "name": "Oefening 6 — Dual task (tracking + rekenen)",
+      "description": "Kandidaat houdt een punt bij met de muis terwijl er elke 8 seconden een eenvoudige som verschijnt bovenin beeld. Kandidaat drukt op het juiste antwoord (A of B).",
+      "sumIntervalSeconds": 8,
+      "scoring": "Trackingnauwkeurigheid + percentage correcte sommen"
+    }
+  ]
+}

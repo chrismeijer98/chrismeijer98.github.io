@@ -1,0 +1,148 @@
+{
+  "categoryId": "compass",
+  "categoryNumber": 3,
+  "name": "COMPASS-voorbereiding",
+  "description": "De COMPASS-test van KLM en Transavia is de zwaarste stap voor veel kandidaten. Vroeg ermee oefenen verhoogt de slagingskans significant. Deze categorie simuleert de kernonderdelen.",
+  "refreshLogic": "Varieer bankhoeken (15 / 30 / 45 / 60 graden), neuspositie, en combineer bank + dalen of stijgen voor hogere niveaus. Wissel welk instrument defect is bij afwijkingsdetectie. Pas de grenswaarden aan bij de multitasking-simulatie.",
+  "types": [
+    {
+      "typeId": "ruimtelijke-orientatie",
+      "name": "Oefening 1 — Ruimtelijke oriëntatie",
+      "description": "De kandidaat ziet een vliegtuigsymbool en een horizon. Het vliegtuig staat in een bepaalde stand. Kandidaat geeft aan welke kant de vleugel omhoog is en of de neus omhoog of omlaag wijst.",
+      "questions": [
+        {
+          "id": "V25",
+          "level": 1,
+          "questionType": "multiple_choice",
+          "question": "Het vliegtuig helt 30 graden naar links. De neus wijst omhoog. Wat laat de kunstmatige horizon zien?",
+          "options": ["A) Rechtervleugel laag, balk omhoog", "B) Linkervleugel laag, balk omhoog", "C) Rechtervleugel laag, balk omlaag", "D) Recht, balk omhoog"],
+          "answer": "B) Linkervleugel laag, balk omhoog",
+          "explanation": "Hellen naar links = linkervleugel daalt, rechtervleugel omhoog."
+        },
+        {
+          "id": "V26",
+          "level": 1,
+          "questionType": "multiple_choice",
+          "question": "Vliegtuig vliegt recht en vlak. Piloot kijkt naar de kunstmatige horizon. Wat ziet hij?",
+          "options": ["A) Blauwe helft boven, bruine helft onder, vleugelbalk in het midden", "B) Alles blauw", "C) Alles bruin", "D) Balk schuin"],
+          "answer": "A) Blauwe helft boven, bruine helft onder, vleugelbalk in het midden",
+          "explanation": "Recht en vlak = standaardweergave van de horizon."
+        },
+        {
+          "id": "V27",
+          "level": 2,
+          "questionType": "open",
+          "question": "Het vliegtuig maakt een bocht naar rechts met 45 graden bank. De neus daalt. Beschrijf de kunstmatige horizon.",
+          "options": null,
+          "answer": "Linkervleugellijn omhoog, rechtervleugellijn omlaag (bank rechts). Vliegtuigsymbool zakt onder de horizonlijn (neus omlaag).",
+          "explanation": "Twee bewegingen tegelijk: bank + neus omlaag."
+        },
+        {
+          "id": "V28",
+          "level": 2,
+          "questionType": "multiple_choice",
+          "question": "Piloot ziet de horizon schuin — rechts omhoog, links omlaag. De neus wijst recht vooruit. In welke richting helt het vliegtuig?",
+          "options": ["A) Links", "B) Rechts", "C) Geen helling", "D) Neus omhoog"],
+          "answer": "B) Rechts",
+          "explanation": "Rechts banken laat de horizon links omhoog gaan vanuit pilootsperspectief."
+        },
+        {
+          "id": "V29",
+          "level": 3,
+          "questionType": "open",
+          "question": "Na een 180-graden-bocht naar links bij constante hoogte — welke kant is nu rechts van de passagier die voorin zit?",
+          "options": null,
+          "answer": "Wat oorspronkelijk links was is nu rechts vanuit passagiersperspectief.",
+          "explanation": "Ruimtelijke rotatie bijhouden na een volledige halve cirkel."
+        },
+        {
+          "id": "V30",
+          "level": 3,
+          "questionType": "open",
+          "question": "Vliegtuig is in een spiraalduik: bank 60 graden rechts, neus sterk omlaag. Welke drie instrumenten geven dit tegelijk aan?",
+          "options": null,
+          "answer": "Kunstmatige horizon (bank + neus omlaag) + hoogtemeter (daalt snel) + VSI (sterk negatief)",
+          "explanation": "Drie instrumenten tegelijk lezen en combineren."
+        }
+      ]
+    },
+    {
+      "typeId": "instrumentlezen",
+      "name": "Oefening 2 — Instrumentlezen",
+      "description": "Kandidaat leest en combineert cockpitinstrumenten (hoogtemeter, snelheidsmeter, VSI, kunstmatige horizon).",
+      "questions": [
+        {
+          "id": "V31",
+          "level": 1,
+          "questionType": "open",
+          "question": "De hoogtemeter toont: grote wijzer op 5, kleine wijzer tussen 2 en 3. Op welke hoogte vliegt het vliegtuig?",
+          "options": null,
+          "answer": "2500 voet",
+          "explanation": "Kleine wijzer = duizendtallen, grote wijzer = honderdtallen. Kleine tussen 2-3 + grote op 5 = 2500."
+        },
+        {
+          "id": "V32",
+          "level": 1,
+          "questionType": "open",
+          "question": "De snelheidsmeter toont 140 knots. De groene boog loopt van 70 tot 150 knots. Is de huidige snelheid binnen het normale werkbereik?",
+          "options": null,
+          "answer": "Ja, maar dicht bij de bovenkant",
+          "explanation": "140 knots valt binnen de groene boog (70-150)."
+        },
+        {
+          "id": "V33",
+          "level": 2,
+          "questionType": "open",
+          "question": "VSI toont +500 ft/min. Hoogte is nu 3000 voet. Na 4 minuten ongewijzigd — wat is de hoogte?",
+          "options": null,
+          "answer": "5000 voet",
+          "explanation": "3000 + (500 x 4) = 5000 voet."
+        },
+        {
+          "id": "V34",
+          "level": 2,
+          "questionType": "open",
+          "question": "De kunstmatige horizon toont het vliegtuigsymbool 2 graden boven de horizonlijn. Wat doet het vliegtuig?",
+          "options": null,
+          "answer": "Licht stijgen (nose up 2 graden)",
+          "explanation": "Symbool boven lijn = neus boven horizon = stijgen."
+        },
+        {
+          "id": "V35",
+          "level": 3,
+          "questionType": "open",
+          "question": "Vier instrumenten tegelijk: Hoogtemeter: 4200 voet. VSI: -200 ft/min. Snelheidsmeter: 110 knots. Kunstmatige horizon: licht links gebankt. Beschrijf de vluchttoestand.",
+          "options": null,
+          "answer": "Vliegtuig daalt langzaam, licht gebankt naar links, snelheid normaal. Mogelijk in naderingsbeurt.",
+          "explanation": "Alle vier instrumenten combineren tot één situatiebeschrijving."
+        },
+        {
+          "id": "V36",
+          "level": 3,
+          "questionType": "open",
+          "question": "VSI toont +100 ft/min maar na 30 seconden is de hoogte nog steeds 3000 voet. Klopt de VSI dan?",
+          "options": null,
+          "answer": "Nee — als de VSI stijging aangeeft maar de hoogte niet verandert, is de VSI waarschijnlijk defect.",
+          "explanation": "Afwijkingsdetectie: instrumenten met elkaar vergelijken."
+        }
+      ]
+    },
+    {
+      "typeId": "multitasking-simulatie",
+      "name": "Oefening 3 — Multitasking-simulatie",
+      "description": "Kandidaat houdt tegelijk drie meters bij via toetsenbesturing, terwijl elke 5 seconden één meter afwijkt door een externe factor.",
+      "meters": [
+        { "name": "Hoogte", "range": "2000-3000 voet" },
+        { "name": "Snelheid", "range": "120-160 knots" },
+        { "name": "Koers", "range": "090 graden, max afwijking 5 graden" }
+      ],
+      "deviationIntervalSeconds": 5,
+      "scoring": "Percentage van de tijd dat alle drie meters binnen het gewenste bereik zijn",
+      "levels": [
+        { "level": 1, "description": "Eén meter tegelijk bijhouden" },
+        { "level": 2, "description": "Twee meters tegelijk" },
+        { "level": 3, "description": "Drie meters + tussendoor een gesproken ATC-instructie onthouden" }
+      ]
+    }
+  ]
+}

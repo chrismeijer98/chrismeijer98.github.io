@@ -802,6 +802,37 @@
       return channel;
     },
     unsubscribe(channel) { try { db().removeChannel(channel); } catch (e) { /* noop */ } },
+
+    // ==========================================================
+    // OEFENINGEN — unlocks + scores
+    // ==========================================================
+    async listUnlocks(candidate_id) {
+      const { data, error } = await db().from('exercise_unlocks').select('category_id').eq('candidate_id', candidate_id);
+      guard(error);
+      return (data || []).map((r) => r.category_id);
+    },
+    async setUnlock(candidate_id, category_id, unlocked, unlocked_by) {
+      if (unlocked) {
+        const { error } = await db().from('exercise_unlocks')
+          .upsert({ candidate_id, category_id, unlocked_by: unlocked_by || null }, { onConflict: 'candidate_id,category_id' });
+        guard(error);
+      } else {
+        const { error } = await db().from('exercise_unlocks').delete().eq('candidate_id', candidate_id).eq('category_id', category_id);
+        guard(error);
+      }
+    },
+    async listExerciseScores(candidate_id) {
+      const { data, error } = await db().from('exercise_scores').select('*').eq('candidate_id', candidate_id).order('created_at', { ascending: true });
+      guard(error);
+      return data || [];
+    },
+    async saveExerciseScore({ candidate_id, category_id, type_id, score, scale_type }) {
+      const { data, error } = await db().from('exercise_scores')
+        .insert({ candidate_id, category_id, type_id, score, scale_type: scale_type || 'percentage' })
+        .select().single();
+      guard(error);
+      return data;
+    },
   };
 
   // ---- Session (localStorage) ----

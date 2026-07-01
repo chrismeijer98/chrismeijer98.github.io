@@ -99,11 +99,11 @@
           <div class="sect-foot" id="ontw-status" style="color:var(--navy)">Openen ${ICONS.arrowRight}</div>
         </button>
 
-        <button class="sect-card soon" disabled>
-          <div class="sect-ico" style="background:rgba(30,74,122,.1);color:var(--navy)">${ICONS.fileText}</div>
-          <div class="sect-t">Oefenmateriaal</div>
-          <div class="sect-d">Oefeningen en materiaal om mee aan de slag te gaan. Dit onderdeel wordt later uitgewerkt.</div>
-          <div class="sect-foot" style="color:var(--muted)">Binnenkort beschikbaar</div>
+        <button class="sect-card clickable" id="sect-oef">
+          <div class="sect-ico" style="background:rgba(30,74,122,.12);color:var(--navy)">${ICONS.target}</div>
+          <div class="sect-t">Oefeningen</div>
+          <div class="sect-d">Oefen voor de pilotenselecties (COMPASS, DLR, PILAPT) op je eigen tempo.</div>
+          <div class="sect-foot" style="color:var(--navy)">Openen ${ICONS.arrowRight}</div>
         </button>
       </div>
     </div>`;
@@ -111,6 +111,7 @@
     qs('#sect-agenda').onclick = () => go('agenda');
     qs('#sect-lab').onclick = () => go('lab');
     qs('#sect-ontw').onclick = () => go('ontwikkeling');
+    qs('#sect-oef').onclick = () => go('oefenmateriaal');
 
     // Verrijk de Agenda-kaart met aantal aankomende events
     try {
@@ -149,8 +150,13 @@
       </div>
     </div>`;
   }
+  // Oefeningen-module (zie OEFENINGEN onderaan). hash:
+  //   #oefenmateriaal | /c/<catId> | /c/<catId>/x/<typeId>
   function renderOefenmateriaal() {
-    comingSoon('Oefenmateriaal', 'Oefeningen en materiaal om mee aan de slag te gaan.', ICONS.fileText);
+    const parts = hashParts();
+    if (parts[1] === 'c' && parts[2] && parts[3] === 'x' && parts[4]) return renderExercisePlayer(parts[2], parts[4]);
+    if (parts[1] === 'c' && parts[2]) return renderCategoryDetail(parts[2]);
+    return renderOefeningenIndex();
   }
 
   // ==========================================================
@@ -1990,5 +1996,272 @@
       ${m.body ? `<div style="white-space:pre-line;font-size:14px;margin-top:6px">${escapeHtml(m.body)}</div>` : ''}
     </div>`).join('');
     qsa('#m-list [data-del-m]').forEach((b) => b.onclick = async () => { if (!confirm('Notulen verwijderen?')) return; try { await HopApi.deleteMinutes(b.dataset.delM); groupMinutes(ctx); } catch (e) { toast('Mislukt', 'error'); } });
+  }
+
+  // ==========================================================
+  // OEFENINGEN — individueel oefenplatform (fase 1+2)
+  // ==========================================================
+  function oefenCat(id) { return (window.OEFEN_CATEGORIES || []).find((c) => c.id === id) || null; }
+  function oefenData(id) { return (window.OEFEN_DATA || {})[id] || null; }
+
+  // Normaliseer een categorie naar speelbare 'groepen' (type/subarea)
+  function oefenGroups(data) {
+    if (!data) return [];
+    if (data.types) return data.types.map((t) => ({ groupId: t.typeId, name: t.name, questions: t.questions || [], levels: t.levels || [] }));
+    if (data.subareas) return data.subareas.map((s) => ({ groupId: s.subareaId || s.typeId || s.id, name: s.name, questions: s.questions || [], levels: s.levels || [] }));
+    if (data.questions) return [{ groupId: 'algemeen', name: data.name, questions: data.questions, levels: [] }];
+    if (data.exercises) return data.exercises.map((e) => ({ groupId: e.exerciseId, name: e.name, questions: [], levels: e.levels || [] }));
+    return [];
+  }
+
+  // Voortgang per categorie uit score-rijen (laatste score per type)
+  function oefenProgress(catId, scores) {
+    const data = oefenData(catId);
+    const groups = oefenGroups(data).filter((g) => g.questions.length);
+    const rows = scores.filter((s) => s.category_id === catId);
+    const latestByType = {};
+    rows.forEach((r) => { latestByType[r.type_id] = r; }); // scores komen chronologisch → laatste wint
+    const doneTypes = groups.filter((g) => latestByType[g.groupId]);
+    const avg = doneTypes.length ? Math.round(doneTypes.reduce((s, g) => s + Number(latestByType[g.groupId].score), 0) / doneTypes.length) : null;
+    const pct = groups.length ? Math.round((doneTypes.length / groups.length) * 100) : 0;
+    return { avg, completion: pct, done: doneTypes.length, total: groups.length };
+  }
+
+  const OEFEN_LOCK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+
+  async function renderOefeningenIndex() {
+    const main = qs('#main');
+    if (session.role === 'coach') return renderOefeningenCoach();
+    main.innerHTML = `<div class="fade-up">
+      <div class="eyebrow">Oefeningen</div>
+      <h1 class="page-title">Oefeningen.</h1>
+      <p class="page-lead">Oefen op eigen tempo voor de pilotenselecties. Je coach geeft categorieën vrij zodra je er klaar voor bent.</p>
+      <div id="oef-body"><div class="spinner" style="margin:60px auto"></div></div>
+    </div>`;
+    let unlocks = [], scores = [];
+    try { [unlocks, scores] = await Promise.all([HopApi.listUnlocks(session.user_id), HopApi.listExerciseScores(session.user_id)]); } catch (e) { console.warn(e); }
+    qs('#oef-body').innerHTML = `<div class="sect-grid">${(window.OEFEN_CATEGORIES || []).map((c) => oefenCard(c, unlocks.includes(c.id), scores)).join('')}</div>`;
+    qsa('#oef-body [data-open]').forEach((b) => b.onclick = () => go('oefenmateriaal', 'c/' + b.dataset.open));
+  }
+
+  function oefenCard(c, unlocked, scores) {
+    if (!unlocked) {
+      return `<div class="lab-card locked">
+        <div class="lab-lock">${OEFEN_LOCK}</div>
+        <div class="sect-t">${c.number}. ${escapeHtml(c.name)}</div>
+        <div class="sect-d">Wordt vrijgegeven door je coach.</div>
+      </div>`;
+    }
+    const pr = oefenProgress(c.id, scores);
+    const foot = pr.total ? `${pr.done}/${pr.total} onderdelen${pr.avg != null ? ` · gem. ${pr.avg}%` : ''}` : 'Interactief — komt later';
+    return `<button class="lab-card clickable" data-open="${c.id}">
+      <div class="lab-ico" style="background:${c.color}1a;color:${c.color}">${ICONS.target}</div>
+      <div class="sect-t">${c.number}. ${escapeHtml(c.name)}</div>
+      <div class="sect-d">${escapeHtml((oefenData(c.id) || {}).description || '')}</div>
+      <div class="lab-foot" style="color:${c.color}">${foot} ${ICONS.arrowRight}</div>
+    </button>`;
+  }
+
+  // ---------- COACH: vrijgeven per kandidaat ----------
+  async function renderOefeningenCoach() {
+    const main = qs('#main');
+    main.innerHTML = `<div class="fade-up">
+      <div class="eyebrow">Oefeningen · Coach</div>
+      <h1 class="page-title">Oefeningen vrijgeven.</h1>
+      <p class="page-lead">Kies een kandidaat en geef categorieën vrij zodra hij er klaar voor is.</p>
+      <div class="field" style="max-width:320px"><label class="field-label">Kandidaat</label><select id="oef-cand" class="input"></select></div>
+      <div id="oef-coach-body"></div>
+    </div>`;
+    let pilots = [];
+    try { pilots = await HopApi.listPilots(); } catch (e) { console.warn(e); }
+    const sel = qs('#oef-cand');
+    sel.innerHTML = `<option value="">— kies kandidaat —</option>` + pilots.map((u) => `<option value="${u.id}">${escapeHtml(u.full_name)}</option>`).join('');
+    sel.onchange = () => loadCand(sel.value);
+    async function loadCand(cid) {
+      const body = qs('#oef-coach-body');
+      if (!cid) { body.innerHTML = ''; return; }
+      body.innerHTML = `<div class="spinner" style="margin:40px auto"></div>`;
+      let unlocks = [], scores = [];
+      try { [unlocks, scores] = await Promise.all([HopApi.listUnlocks(cid), HopApi.listExerciseScores(cid)]); } catch (e) { console.warn(e); }
+      body.innerHTML = `<div class="card card-lg" style="margin-top:8px">${(window.OEFEN_CATEGORIES || []).map((c) => {
+        const on = unlocks.includes(c.id);
+        const pr = oefenProgress(c.id, scores);
+        return `<div class="lab-assign-row">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;color:var(--navy-deep)">${c.number}. ${escapeHtml(c.name)}</div>
+            <div style="font-size:12px;color:var(--muted)">${pr.total ? `${pr.done}/${pr.total} gedaan${pr.avg != null ? ` · gem. ${pr.avg}%` : ''}` : 'interactief (later)'}</div>
+          </div>
+          <label class="oef-switch"><input type="checkbox" data-unlock="${c.id}" ${on ? 'checked' : ''}><span>${on ? 'Vrijgegeven' : 'Vergrendeld'}</span></label>
+        </div>`;
+      }).join('')}</div>`;
+      qsa('#oef-coach-body [data-unlock]').forEach((cb) => cb.onchange = async () => {
+        try {
+          await HopApi.setUnlock(cid, cb.dataset.unlock, cb.checked, session.user_id);
+          cb.parentElement.querySelector('span').textContent = cb.checked ? 'Vrijgegeven' : 'Vergrendeld';
+          toast(cb.checked ? 'Vrijgegeven' : 'Vergrendeld', 'success');
+        } catch (e) { toast('Mislukt', 'error'); cb.checked = !cb.checked; }
+      });
+    }
+  }
+
+  // ---------- KANDIDAAT: categorie-detail ----------
+  async function renderCategoryDetail(catId) {
+    const main = qs('#main');
+    const c = oefenCat(catId);
+    const data = oefenData(catId);
+    if (!c || !data) { main.innerHTML = `<div class="fade-up"><a href="#oefenmateriaal" class="back-link">${ICONS.chevLeft} Terug</a><div class="card" style="color:var(--danger)">Onbekende categorie.</div></div>`; return; }
+    main.innerHTML = `<div class="fade-up"><div class="spinner" style="margin:80px auto"></div></div>`;
+    let unlocks = [], scores = [];
+    try { [unlocks, scores] = await Promise.all([HopApi.listUnlocks(session.user_id), HopApi.listExerciseScores(session.user_id)]); } catch (e) { console.warn(e); }
+    if (!unlocks.includes(catId)) {
+      main.innerHTML = `<div class="fade-up"><a href="#oefenmateriaal" class="back-link">${ICONS.chevLeft} Terug naar oefeningen</a>
+        <div class="card" style="border-style:dashed;text-align:center;color:var(--muted);padding:50px">${OEFEN_LOCK}<div style="margin-top:10px">Deze categorie is nog vergrendeld. Wordt vrijgegeven door je coach.</div></div></div>`;
+      return;
+    }
+    const groups = oefenGroups(data);
+    const latestByType = {}; scores.filter((s) => s.category_id === catId).forEach((r) => { latestByType[r.type_id] = r; });
+    const bestByType = {}; scores.filter((s) => s.category_id === catId).forEach((r) => { bestByType[r.type_id] = Math.max(bestByType[r.type_id] || 0, Number(r.score)); });
+
+    main.innerHTML = `<div class="fade-up">
+      <a href="#oefenmateriaal" class="back-link">${ICONS.chevLeft} Terug naar oefeningen</a>
+      <div class="eyebrow">Categorie ${c.number}</div>
+      <h1 class="page-title">${escapeHtml(c.name)}.</h1>
+      <p class="page-lead">${escapeHtml(data.description || '')}</p>
+      <div>${groups.map((g) => {
+        const playable = g.questions.length > 0;
+        const best = bestByType[g.groupId];
+        return `<div class="lab-assign-row">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;color:var(--navy-deep)">${escapeHtml(g.name)}</div>
+            <div style="font-size:12px;color:var(--muted)">${playable ? `${g.questions.length} vragen${g.levels.length ? ` · ${g.levels.length} niveaus` : ''}${best != null ? ` · beste ${best}%` : ''}` : 'Interactieve oefening — komt in een latere fase'}</div>
+          </div>
+          ${playable ? `<button class="btn btn-coral btn-sm" data-start="${g.groupId}">${best != null ? 'Opnieuw' : 'Start'} ${ICONS.arrowRight}</button>` : `<span class="pill" style="background:var(--sand);color:var(--muted)">Binnenkort</span>`}
+        </div>`;
+      }).join('')}</div>
+    </div>`;
+    qsa('[data-start]').forEach((b) => b.onclick = () => go('oefenmateriaal', 'c/' + catId + '/x/' + b.dataset.start));
+  }
+
+  // ---------- KANDIDAAT: vraag-speler ----------
+  function oefenOptionLetter(opt) { const m = String(opt).match(/^\s*([A-Za-z])\s*[\).:\-]/); return m ? m[1].toUpperCase() : null; }
+  function oefenStripLetter(s) { return String(s || '').replace(/^\s*[A-Za-z]\s*[\).:\-]\s*/, '').trim(); }
+  function oefenMCcorrect(selected, answer) {
+    const a = String(answer || '').trim();
+    if (/^[A-Za-z]$/.test(a)) return oefenOptionLetter(selected) === a.toUpperCase();
+    return oefenStripLetter(selected).toLowerCase() === oefenStripLetter(a).toLowerCase() || String(selected).trim().toLowerCase() === a.toLowerCase();
+  }
+  function oefenNormSeq(s) { return String(s || '').toLowerCase().replace(/[^0-9a-z]/g, ''); }
+  function sjtColor(p) { return p >= 4 ? '#15803D' : p === 3 ? '#65A30D' : p === 2 ? '#D97706' : '#B91C1C'; }
+
+  async function renderExercisePlayer(catId, typeId) {
+    const main = qs('#main');
+    const c = oefenCat(catId);
+    const data = oefenData(catId);
+    const group = oefenGroups(data).find((g) => g.groupId === typeId);
+    if (!c || !group || !group.questions.length) { main.innerHTML = `<div class="fade-up"><a href="#oefenmateriaal/c/${catId}" class="back-link">${ICONS.chevLeft} Terug</a><div class="card" style="color:var(--danger)">Oefening niet gevonden.</div></div>`; return; }
+    const questions = group.questions;
+    const results = new Array(questions.length).fill(null); // true/false per vraag
+    const sjtPoints = new Array(questions.length).fill(null); // 1-4 per SJT-vraag
+    const isSJT = (c.kind === 'sjt') || (questions[0] && questions[0].questionType === 'sjt');
+    let i = 0;
+
+    const backHref = '#oefenmateriaal/c/' + catId;
+    main.innerHTML = `<div class="fade-up" style="max-width:720px">
+      <a href="${backHref}" class="back-link">${ICONS.chevLeft} Stoppen</a>
+      <div class="eyebrow">${escapeHtml(c.name)} · ${escapeHtml(group.name)}</div>
+      <div id="oef-progress" class="oef-progress"></div>
+      <div id="oef-q"></div>
+    </div>`;
+
+    function renderProgress() {
+      qs('#oef-progress').innerHTML = `<div class="oef-bar"><div style="width:${Math.round((i / questions.length) * 100)}%"></div></div><div style="font-size:12px;color:var(--muted);margin-top:6px">Vraag ${Math.min(i + 1, questions.length)} van ${questions.length}</div>`;
+    }
+
+    function finish() {
+      let score, detail;
+      if (isSJT) {
+        const pts = sjtPoints.filter((p) => p != null);
+        const avg = pts.length ? pts.reduce((a, b) => a + b, 0) / pts.length : 1;
+        score = Math.round(((avg - 1) / 3) * 100);
+        detail = `gemiddeld ${avg.toFixed(1)} / 4 punten — een gedragsprofiel, geen goed of fout`;
+      } else {
+        const correct = results.filter((r) => r === true).length;
+        score = Math.round((correct / questions.length) * 100);
+        detail = `${correct} van ${questions.length} goed`;
+      }
+      HopApi.saveExerciseScore({ candidate_id: session.user_id, category_id: catId, type_id: typeId, score, scale_type: 'percentage' }).catch((e) => console.warn(e));
+      qs('#oef-progress').innerHTML = '';
+      qs('#oef-q').innerHTML = `<div class="card card-lg" style="text-align:center">
+        <div class="font-display" style="font-size:44px;font-weight:700;color:var(--navy-deep)">${score}%</div>
+        <div style="color:var(--muted);margin:6px 0 20px">${detail}</div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <button class="btn btn-coral" id="oef-again">Opnieuw</button>
+          <a class="btn btn-ghost" href="${backHref}">Terug naar categorie</a>
+        </div>
+      </div>`;
+      qs('#oef-again').onclick = () => renderExercisePlayer(catId, typeId);
+    }
+
+    function next() { i++; if (i >= questions.length) finish(); else renderQ(); }
+
+    function renderQ() {
+      renderProgress();
+      const q = questions[i];
+      const type = q.questionType || (q.options ? 'multiple_choice' : 'open');
+      const el = qs('#oef-q');
+      const head = `${q.context ? `<div class="oef-context">${escapeHtml(q.context)}</div>` : ''}<div class="oef-question">${escapeHtml(q.question || '')}</div>`;
+
+      if (type === 'sjt' && Array.isArray(q.options) && q.options.length) {
+        el.innerHTML = `<div class="card card-lg">${head}<div id="oef-opts" class="oef-opts">${q.options.map((o, idx) => `<button class="oef-opt" data-idx="${idx}">${escapeHtml(o.label)}</button>`).join('')}</div><div id="oef-fb"></div></div>`;
+        qsa('#oef-opts .oef-opt').forEach((b) => b.onclick = () => {
+          const opt = q.options[+b.dataset.idx];
+          sjtPoints[i] = opt.points;
+          qsa('#oef-opts .oef-opt').forEach((x) => { x.disabled = true; const xo = q.options[+x.dataset.idx]; x.style.borderColor = sjtColor(xo.points); x.style.color = sjtColor(xo.points); });
+          b.style.background = sjtColor(opt.points) + '14'; b.style.fontWeight = '600';
+          const guide = ((oefenData(catId) || {}).scoringGuide || []).find((gg) => gg.points === opt.points);
+          const fb = qs('#oef-fb');
+          fb.innerHTML = `<div class="oef-verdict" style="color:${sjtColor(opt.points)}">${opt.points}/4 punten${guide ? ' — ' + escapeHtml(guide.meaning) : ''}</div>
+            ${q.explanation ? `<div class="oef-expl">${escapeHtml(q.explanation)}</div>` : ''}
+            <button class="btn btn-coral btn-sm" id="oef-next" style="margin-top:12px">${i + 1 >= questions.length ? 'Afronden' : 'Volgende'} ${ICONS.arrowRight}</button>`;
+          qs('#oef-next').onclick = next;
+        });
+      } else if ((type === 'multiple_choice' || type === 'matrix_grid') && Array.isArray(q.options) && q.options.length) {
+        el.innerHTML = `<div class="card card-lg">${head}<div id="oef-opts" class="oef-opts">${q.options.map((o, idx) => `<button class="oef-opt" data-idx="${idx}">${escapeHtml(o)}</button>`).join('')}</div><div id="oef-fb"></div></div>`;
+        qsa('#oef-opts .oef-opt').forEach((b) => b.onclick = () => {
+          const opt = q.options[+b.dataset.idx];
+          const ok = oefenMCcorrect(opt, q.answer);
+          results[i] = ok;
+          qsa('#oef-opts .oef-opt').forEach((x) => { x.disabled = true; const xo = q.options[+x.dataset.idx]; if (oefenMCcorrect(xo, q.answer)) x.classList.add('good'); });
+          if (!ok) b.classList.add('bad');
+          showFeedback(ok, q);
+        });
+      } else if (type === 'sequence') {
+        el.innerHTML = `<div class="card card-lg">${head}<input id="oef-inp" class="input" placeholder="Typ je antwoord…" autocomplete="off"><div style="margin-top:10px"><button class="btn btn-coral btn-sm" id="oef-check">Controleer</button></div><div id="oef-fb"></div></div>`;
+        const check = () => { const ok = oefenNormSeq(qs('#oef-inp').value) === oefenNormSeq(q.answer); results[i] = ok; qs('#oef-inp').disabled = true; qs('#oef-check').disabled = true; showFeedback(ok, q); };
+        qs('#oef-check').onclick = check;
+        qs('#oef-inp').addEventListener('keydown', (e) => { if (e.key === 'Enter') check(); });
+      } else {
+        // open / matrix zonder opties → zelfbeoordeling
+        el.innerHTML = `<div class="card card-lg">${head}<textarea id="oef-inp" class="input" rows="3" placeholder="Schrijf je antwoord…"></textarea><div style="margin-top:10px"><button class="btn btn-ghost btn-sm" id="oef-reveal">Toon modelantwoord</button></div><div id="oef-fb"></div></div>`;
+        qs('#oef-reveal').onclick = () => {
+          qs('#oef-fb').innerHTML = `<div class="oef-answer"><strong>Modelantwoord:</strong> ${escapeHtml(q.answer || '')}</div>${q.explanation ? `<div class="oef-expl">${escapeHtml(q.explanation)}</div>` : ''}
+            <div style="margin-top:12px;font-size:13px;color:var(--muted)">Had je dit goed?</div>
+            <div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-coral btn-sm" id="oef-self-y">Ja, goed</button><button class="btn btn-ghost btn-sm" id="oef-self-n">Niet helemaal</button></div>`;
+          qs('#oef-self-y').onclick = () => { results[i] = true; next(); };
+          qs('#oef-self-n').onclick = () => { results[i] = false; next(); };
+        };
+      }
+    }
+
+    function showFeedback(ok, q) {
+      const fb = qs('#oef-fb');
+      fb.innerHTML = `<div class="oef-verdict ${ok ? 'good' : 'bad'}">${ok ? ICONS.check + ' Goed!' : 'Niet correct'}</div>
+        ${!ok ? `<div class="oef-answer"><strong>Antwoord:</strong> ${escapeHtml(q.answer || '')}</div>` : ''}
+        ${q.explanation ? `<div class="oef-expl">${escapeHtml(q.explanation)}</div>` : ''}
+        <button class="btn btn-coral btn-sm" id="oef-next" style="margin-top:12px">${i + 1 >= questions.length ? 'Afronden' : 'Volgende'} ${ICONS.arrowRight}</button>`;
+      qs('#oef-next').onclick = next;
+    }
+
+    renderQ();
   }
 })();
