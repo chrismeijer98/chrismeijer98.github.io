@@ -3,97 +3,72 @@
 // ============================================================
 
 (function () {
-  // Eén gedeelde client (sessie wordt in localStorage bewaard en
-  // automatisch ververst). Belangrijk voor Auth + RLS.
-  let _client = null;
   function db() {
-    if (_client) return _client;
     const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.HOP_CONFIG;
-    _client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    return _client;
+    return supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   }
 
   function guard(error) {
     if (error) throw error;
   }
 
-  // Naam -> synthetisch e-mailadres voor Supabase Auth.
-  // Moet identiek zijn aan loginSlug() in supabase/functions/admin-users.
-  function loginSlug(name) {
-    return String(name || '')
-      .normalize('NFD').replace(/[̀-ͯ]/g, '')
-      .toLowerCase().replace(/[^a-z0-9]+/g, '');
-  }
-  function loginEmail(name) {
-    const domain = (window.HOP_CONFIG && window.HOP_CONFIG.AUTH_EMAIL_DOMAIN) || 'hop.local';
-    return loginSlug(name) + '@' + domain;
-  }
-
-  // Admin-acties lopen via de Edge Function (service-role, server-side).
-  function adminFnUrl() {
-    return window.HOP_CONFIG.SUPABASE_URL.replace(/\/$/, '') + '/functions/v1/admin-users';
-  }
-  async function callAdmin(action, payload, adminToken) {
-    const res = await fetch(adminFnUrl(), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + window.HOP_CONFIG.SUPABASE_ANON_KEY,
-        'x-admin-token': adminToken || '',
-      },
-      body: JSON.stringify({ action, ...(payload || {}) }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ('Serverfout (' + res.status + ')'));
-    return data;
+  async function hashPassword(password) {
+    const data = new TextEncoder().encode(password);
+    const buf  = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
   const api = {
-    // ---- Auth (Supabase Auth; inloggen op naam via synthetisch e-mail) ----
+    // ---- Auth ----
     async loginUser({ full_name, password }) {
-      const email = loginEmail(full_name);
-      const { data, error } = await db().auth.signInWithPassword({ email, password });
-      if (error || !data || !data.user) throw new Error('Naam of wachtwoord onjuist');
-      const { data: profile, error: pErr } = await db()
+      const hash = await hashPassword(password);
+      const { data, error } = await db()
         .from('users')
-        .select('id, full_name, role')
-        .eq('auth_id', data.user.id)
+        .select('*')
+        .ilike('full_name', full_name)
+        .eq('password_hash', hash)
         .maybeSingle();
-      if (pErr || !profile) {
-        await db().auth.signOut();
-        throw new Error('Account zonder gekoppeld profiel. Neem contact op met de beheerder.');
-      }
-      return profile;
+      guard(error);
+      if (!data) throw new Error('Naam of wachtwoord onjuist');
+      return data;
     },
 
-    async signOut() {
-      try { await db().auth.signOut(); } catch (e) { /* noop */ }
+    // ---- User management (admin) ----
+    async createUser({ full_name, role, password }) {
+      const hash = await hashPassword(password);
+      const { data, error } = await db()
+        .from('users')
+        .insert({ full_name, role, password_hash: hash })
+        .select()
+        .single();
+      guard(error);
+      return data;
     },
 
-    // True als er een geldige Supabase-sessie is (async).
-    async hasSession() {
-      const { data } = await db().auth.getSession();
-      return !!(data && data.session);
+    async updatePassword({ user_id, password }) {
+      const hash = await hashPassword(password);
+      const { data, error } = await db()
+        .from('users')
+        .update({ password_hash: hash, updated_at: new Date().toISOString() })
+        .eq('id', user_id)
+        .select()
+        .single();
+      guard(error);
+      return data;
     },
 
-    // ---- User management (admin, via Edge Function met beheer-token) ----
-    async listUsers(adminToken) {
-      const { users } = await callAdmin('list', {}, adminToken);
-      return users || [];
+    async listUsers() {
+      const { data, error } = await db()
+        .from('users')
+        .select('id, full_name, role, created_at')
+        .order('created_at', { ascending: false });
+      guard(error);
+      return data;
     },
 
-    async createUser({ full_name, role, password }, adminToken) {
-      const { user } = await callAdmin('create', { full_name, role, password }, adminToken);
-      return user;
-    },
-
-    async updatePassword({ user_id, password }, adminToken) {
-      await callAdmin('set_password', { user_id, password }, adminToken);
-      return { ok: true };
-    },
-
-    async deleteUser(id, adminToken) {
-      await callAdmin('delete', { user_id: id }, adminToken);
+    async deleteUser(id) {
+      const { error } = await db().from('users').delete().eq('id', id);
+      guard(error);
     },
 
     // ---- Feedback sessions ----
@@ -376,6 +351,457 @@
       guard(error);
       return data;
     },
+
+    // ==========================================================
+    // COACHING MODULE
+    // ==========================================================
+    async listCoaches() {
+      const { data, error } = await db()
+        .from('users').select('id, full_name, role').eq('role', 'coach')
+        .order('full_name', { ascending: true });
+      guard(error);
+      return data;
+    },
+
+    // Voegt coach_name / pilot_name toe aan relatie-rijen
+    async _attachRelNames(rels) {
+      if (!rels || !rels.length) return rels || [];
+      const ids = [...new Set(rels.flatMap((r) => [r.coach_id, r.pilot_id]))];
+      const { data, error } = await db().from('users').select('id, full_name, role').in('id', ids);
+      guard(error);
+      const map = {};
+      (data || []).forEach((u) => { map[u.id] = u; });
+      rels.forEach((r) => {
+        r.coach_name = (map[r.coach_id] || {}).full_name || '';
+        r.pilot_name = (map[r.pilot_id] || {}).full_name || '';
+      });
+      return rels;
+    },
+
+    async createRelation({ coach_id, pilot_id, created_by }) {
+      const { data, error } = await db()
+        .from('coaching_relations')
+        .insert({ coach_id, pilot_id, created_by: created_by || null })
+        .select().single();
+      guard(error);
+      return data;
+    },
+
+    async deleteRelation(id) {
+      const { error } = await db().from('coaching_relations').delete().eq('id', id);
+      guard(error);
+    },
+
+    async listRelationsForCoach(coach_id) {
+      const { data, error } = await db()
+        .from('coaching_relations').select('*').eq('coach_id', coach_id)
+        .order('created_at', { ascending: true });
+      guard(error);
+      return this._attachRelNames(data || []);
+    },
+
+    async listRelationsForPilot(pilot_id) {
+      const { data, error } = await db()
+        .from('coaching_relations').select('*').eq('pilot_id', pilot_id)
+        .order('created_at', { ascending: true });
+      guard(error);
+      return this._attachRelNames(data || []);
+    },
+
+    async getRelation(id) {
+      const { data, error } = await db()
+        .from('coaching_relations').select('*').eq('id', id).maybeSingle();
+      guard(error);
+      if (!data) return null;
+      const [r] = await this._attachRelNames([data]);
+      return r;
+    },
+
+    // ---- Gesprekken ----
+    async listSessionsFor(relation_id) {
+      const { data, error } = await db()
+        .from('coaching_sessions').select('*').eq('relation_id', relation_id)
+        .order('scheduled_at', { ascending: false });
+      guard(error);
+      return data;
+    },
+    async createCoachSession({ relation_id, title, scheduled_at, created_by }) {
+      const { data, error } = await db()
+        .from('coaching_sessions')
+        .insert({ relation_id, title: title || null, scheduled_at: scheduled_at || null, created_by: created_by || null })
+        .select().single();
+      guard(error);
+      return data;
+    },
+    async updateCoachSession(id, patch) {
+      const { data, error } = await db()
+        .from('coaching_sessions').update(patch).eq('id', id).select().single();
+      guard(error);
+      return data;
+    },
+    async deleteCoachSession(id) {
+      const { error } = await db().from('coaching_sessions').delete().eq('id', id);
+      guard(error);
+    },
+
+    // ---- Notities ----
+    async listNotesFor(relation_id) {
+      const { data, error } = await db()
+        .from('coaching_notes').select('*').eq('relation_id', relation_id)
+        .order('created_at', { ascending: false });
+      guard(error);
+      return data;
+    },
+    async createNote({ relation_id, session_id, author_id, body, shared }) {
+      const { data, error } = await db()
+        .from('coaching_notes')
+        .insert({ relation_id, session_id: session_id || null, author_id: author_id || null, body: body || '', shared: !!shared })
+        .select().single();
+      guard(error);
+      return data;
+    },
+    async updateNote(id, patch) {
+      const { data, error } = await db()
+        .from('coaching_notes')
+        .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+      guard(error);
+      return data;
+    },
+    async deleteNote(id) {
+      const { error } = await db().from('coaching_notes').delete().eq('id', id);
+      guard(error);
+    },
+
+    // ---- Actiepunten ----
+    async listActionsFor(relation_id) {
+      const { data, error } = await db()
+        .from('coaching_actions').select('*').eq('relation_id', relation_id)
+        .order('created_at', { ascending: false });
+      guard(error);
+      return data;
+    },
+    async createAction({ relation_id, session_id, title, due_date, created_by }) {
+      const { data, error } = await db()
+        .from('coaching_actions')
+        .insert({ relation_id, session_id: session_id || null, title, due_date: due_date || null, created_by: created_by || null })
+        .select().single();
+      guard(error);
+      return data;
+    },
+    async updateAction(id, patch) {
+      const { data, error } = await db()
+        .from('coaching_actions')
+        .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+      guard(error);
+      return data;
+    },
+    async deleteAction(id) {
+      const { error } = await db().from('coaching_actions').delete().eq('id', id);
+      guard(error);
+    },
+
+    // ---- Ontwikkeladviezen ----
+    async listAdviceFor(relation_id) {
+      const { data, error } = await db()
+        .from('coaching_advice').select('*').eq('relation_id', relation_id)
+        .order('created_at', { ascending: false });
+      guard(error);
+      return data;
+    },
+    async createAdvice({ relation_id, coach_id, body }) {
+      const { data, error } = await db()
+        .from('coaching_advice')
+        .insert({ relation_id, coach_id: coach_id || null, body: body || '' })
+        .select().single();
+      guard(error);
+      return data;
+    },
+    async deleteAdvice(id) {
+      const { error } = await db().from('coaching_advice').delete().eq('id', id);
+      guard(error);
+    },
+
+    // ==========================================================
+    // AGENDA & EVENTS
+    // ==========================================================
+    async listEvents() {
+      const { data, error } = await db()
+        .from('events').select('*').order('starts_at', { ascending: true });
+      guard(error);
+      return data || [];
+    },
+    async getEvent(id) {
+      const { data, error } = await db().from('events').select('*').eq('id', id).maybeSingle();
+      guard(error);
+      return data;
+    },
+    async createEvent(row) {
+      const { data, error } = await db().from('events').insert({
+        title: row.title, category: row.category || null, description: row.description || null,
+        location: row.location || null, starts_at: row.starts_at || null, ends_at: row.ends_at || null,
+        capacity: (row.capacity === '' || row.capacity == null) ? null : Number(row.capacity),
+        created_by: row.created_by || null,
+      }).select().single();
+      guard(error);
+      return data;
+    },
+    async updateEvent(id, patch) {
+      const { data, error } = await db().from('events')
+        .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+      guard(error);
+      return data;
+    },
+    async deleteEvent(id) {
+      const { error } = await db().from('events').delete().eq('id', id);
+      guard(error);
+    },
+
+    // Alle aanmeldingen (voor tellingen + eigen status in de lijst)
+    async listAllSignups() {
+      const { data, error } = await db().from('event_signups').select('event_id, user_id, status');
+      guard(error);
+      return data || [];
+    },
+    // Aanmeldingen van één evenement, met naam (voor detailweergave)
+    async listSignups(event_id) {
+      const { data, error } = await db()
+        .from('event_signups')
+        .select('id, user_id, status, created_at, users(full_name)')
+        .eq('event_id', event_id)
+        .order('created_at', { ascending: true });
+      guard(error);
+      return (data || []).map((s) => ({
+        id: s.id, user_id: s.user_id, status: s.status, created_at: s.created_at,
+        full_name: (s.users || {}).full_name || '',
+      }));
+    },
+
+    // Aanmelden: vol -> automatisch op de wachtlijst
+    async signUp(event_id, user_id) {
+      const { data: ex } = await db().from('event_signups')
+        .select('id, status').eq('event_id', event_id).eq('user_id', user_id).maybeSingle();
+      if (ex) return ex;
+      const { data: ev, error: evErr } = await db().from('events').select('capacity').eq('id', event_id).single();
+      guard(evErr);
+      let status = 'registered';
+      if (ev.capacity != null) {
+        const { count, error: cErr } = await db().from('event_signups')
+          .select('id', { count: 'exact', head: true }).eq('event_id', event_id).eq('status', 'registered');
+        guard(cErr);
+        if ((count || 0) >= ev.capacity) status = 'waitlist';
+      }
+      const { data, error } = await db().from('event_signups')
+        .insert({ event_id, user_id, status }).select().single();
+      guard(error);
+      return data;
+    },
+
+    // Afmelden: bij een vrijgekomen plek schuift de eerste wachtlijster door
+    async cancelSignup(event_id, user_id) {
+      const { data: mine } = await db().from('event_signups')
+        .select('id, status').eq('event_id', event_id).eq('user_id', user_id).maybeSingle();
+      if (!mine) return;
+      const { error } = await db().from('event_signups').delete().eq('id', mine.id);
+      guard(error);
+      if (mine.status !== 'registered') return;
+      const { data: ev } = await db().from('events').select('capacity').eq('id', event_id).maybeSingle();
+      if (!ev || ev.capacity == null) return;
+      const { count } = await db().from('event_signups')
+        .select('id', { count: 'exact', head: true }).eq('event_id', event_id).eq('status', 'registered');
+      if ((count || 0) >= ev.capacity) return;
+      const { data: next } = await db().from('event_signups')
+        .select('id').eq('event_id', event_id).eq('status', 'waitlist')
+        .order('created_at', { ascending: true }).limit(1).maybeSingle();
+      if (next) await db().from('event_signups').update({ status: 'registered' }).eq('id', next.id);
+    },
+
+    // ==========================================================
+    // LAB-GROEPEN
+    // ==========================================================
+    async listGroups() {
+      const { data, error } = await db().from('lab_groups').select('*').order('created_at', { ascending: false });
+      guard(error);
+      return data || [];
+    },
+    async getGroup(id) {
+      const { data, error } = await db().from('lab_groups').select('*').eq('id', id).maybeSingle();
+      guard(error);
+      return data;
+    },
+    async createGroup({ name, description, self_enroll, created_by, member_ids }) {
+      const { data, error } = await db().from('lab_groups')
+        .insert({ name, description: description || null, self_enroll: !!self_enroll, created_by: created_by || null })
+        .select().single();
+      guard(error);
+      if (member_ids && member_ids.length) await this.setGroupMembers(data.id, member_ids);
+      return data;
+    },
+    async updateGroup(id, patch) {
+      const { data, error } = await db().from('lab_groups').update(patch).eq('id', id).select().single();
+      guard(error);
+      return data;
+    },
+    async deleteGroup(id) {
+      const { error } = await db().from('lab_groups').delete().eq('id', id);
+      guard(error);
+    },
+    async listGroupsForUser(user_id) {
+      const { data, error } = await db().from('lab_group_members').select('group_id').eq('user_id', user_id);
+      guard(error);
+      const ids = (data || []).map((r) => r.group_id);
+      if (!ids.length) return [];
+      const { data: rows, error: e2 } = await db().from('lab_groups').select('*').in('id', ids).order('created_at', { ascending: false });
+      guard(e2);
+      return rows || [];
+    },
+
+    // ---- Leden ----
+    async listGroupMembers(group_id) {
+      const { data, error } = await db().from('lab_group_members')
+        .select('user_id, users(full_name, role)').eq('group_id', group_id);
+      guard(error);
+      return (data || []).map((m) => ({ user_id: m.user_id, full_name: (m.users || {}).full_name || '', role: (m.users || {}).role || 'pilot' }));
+    },
+    async setGroupMembers(group_id, member_ids) {
+      const client = db();
+      const { error: delErr } = await client.from('lab_group_members').delete().eq('group_id', group_id);
+      guard(delErr);
+      if (member_ids && member_ids.length) {
+        const rows = member_ids.map((user_id) => ({ group_id, user_id }));
+        const { error } = await client.from('lab_group_members').insert(rows);
+        guard(error);
+      }
+    },
+    async addGroupMember(group_id, user_id) {
+      const { error } = await db().from('lab_group_members').upsert({ group_id, user_id }, { onConflict: 'group_id,user_id' });
+      guard(error);
+    },
+    async removeGroupMember(group_id, user_id) {
+      const { error } = await db().from('lab_group_members').delete().eq('group_id', group_id).eq('user_id', user_id);
+      guard(error);
+    },
+
+    // ---- Bestanden (storage 'lab-docs', pad groups/<id>/...) ----
+    async listGroupFiles(group_id) {
+      const { data, error } = await db().from('lab_group_files')
+        .select('id, name, path, size, uploaded_by, created_at, users(full_name)')
+        .eq('group_id', group_id).order('created_at', { ascending: false });
+      guard(error);
+      return (data || []).map((f) => ({ ...f, uploader: (f.users || {}).full_name || '' }));
+    },
+    async uploadGroupFile(group_id, file, user_id) {
+      const client = db();
+      const safe = file.name.replace(/[^\w.\-]+/g, '_');
+      const path = `groups/${group_id}/${Date.now()}-${safe}`;
+      const { error: upErr } = await client.storage.from('lab-docs').upload(path, file, { upsert: false, contentType: file.type || undefined });
+      guard(upErr);
+      const { data, error } = await client.from('lab_group_files')
+        .insert({ group_id, name: file.name, path, size: file.size || null, uploaded_by: user_id || null })
+        .select().single();
+      guard(error);
+      return data;
+    },
+    async deleteGroupFile(id, path) {
+      const client = db();
+      if (path) { try { await client.storage.from('lab-docs').remove([path]); } catch (e) { /* noop */ } }
+      const { error } = await client.from('lab_group_files').delete().eq('id', id);
+      guard(error);
+    },
+
+    // ---- Taken ----
+    async listGroupTasks(group_id) {
+      const { data, error } = await db().from('lab_group_tasks').select('*').eq('group_id', group_id).order('created_at', { ascending: false });
+      guard(error);
+      return data || [];
+    },
+    async createTask(row) {
+      const { data, error } = await db().from('lab_group_tasks').insert({
+        group_id: row.group_id, title: row.title, assignee_id: row.assignee_id || null,
+        priority: row.priority || 'normal', due_date: row.due_date || null, created_by: row.created_by || null,
+      }).select().single();
+      guard(error);
+      return data;
+    },
+    async updateTask(id, patch) {
+      const { data, error } = await db().from('lab_group_tasks').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+      guard(error);
+      return data;
+    },
+    async deleteTask(id) {
+      const { error } = await db().from('lab_group_tasks').delete().eq('id', id);
+      guard(error);
+    },
+
+    // ---- Forum ----
+    async listThreads(group_id) {
+      const { data, error } = await db().from('lab_group_threads')
+        .select('id, title, created_by, created_at, users(full_name)').eq('group_id', group_id).order('created_at', { ascending: false });
+      guard(error);
+      return (data || []).map((t) => ({ ...t, author: (t.users || {}).full_name || '' }));
+    },
+    async createThread({ group_id, title, created_by, body }) {
+      const { data, error } = await db().from('lab_group_threads')
+        .insert({ group_id, title, created_by: created_by || null }).select().single();
+      guard(error);
+      if (body) await this.createPost({ thread_id: data.id, group_id, author_id: created_by, body });
+      return data;
+    },
+    async deleteThread(id) {
+      const { error } = await db().from('lab_group_threads').delete().eq('id', id);
+      guard(error);
+    },
+    async listPosts(thread_id) {
+      const { data, error } = await db().from('lab_group_posts')
+        .select('id, author_id, body, created_at, users(full_name)').eq('thread_id', thread_id).order('created_at', { ascending: true });
+      guard(error);
+      return (data || []).map((p) => ({ ...p, author: (p.users || {}).full_name || '' }));
+    },
+    async createPost({ thread_id, group_id, author_id, body }) {
+      const { data, error } = await db().from('lab_group_posts')
+        .insert({ thread_id, group_id, author_id: author_id || null, body: body || '' }).select().single();
+      guard(error);
+      return data;
+    },
+
+    // ---- Notulen ----
+    async listMinutes(group_id) {
+      const { data, error } = await db().from('lab_group_minutes').select('*').eq('group_id', group_id).order('meeting_date', { ascending: false });
+      guard(error);
+      return data || [];
+    },
+    async createMinutes({ group_id, title, body, meeting_date, created_by }) {
+      const { data, error } = await db().from('lab_group_minutes')
+        .insert({ group_id, title, body: body || '', meeting_date: meeting_date || null, created_by: created_by || null }).select().single();
+      guard(error);
+      return data;
+    },
+    async deleteMinutes(id) {
+      const { error } = await db().from('lab_group_minutes').delete().eq('id', id);
+      guard(error);
+    },
+
+    // ---- Chat ----
+    async listMessages(group_id) {
+      const { data, error } = await db().from('lab_group_messages')
+        .select('id, author_id, body, created_at, users(full_name)').eq('group_id', group_id)
+        .order('created_at', { ascending: true }).limit(300);
+      guard(error);
+      return (data || []).map((m) => ({ ...m, author: (m.users || {}).full_name || '' }));
+    },
+    async sendMessage({ group_id, author_id, body }) {
+      const { data, error } = await db().from('lab_group_messages')
+        .insert({ group_id, author_id: author_id || null, body }).select('id, author_id, body, created_at').single();
+      guard(error);
+      return data;
+    },
+    subscribeMessages(group_id, onInsert) {
+      const channel = db().channel('lab-chat-' + group_id)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'lab_group_messages', filter: 'group_id=eq.' + group_id },
+          (payload) => onInsert(payload.new))
+        .subscribe();
+      return channel;
+    },
+    unsubscribe(channel) { try { db().removeChannel(channel); } catch (e) { /* noop */ } },
   };
 
   // ---- Session (localStorage) ----

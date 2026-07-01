@@ -221,6 +221,18 @@ window.FB_SCALE_LABELS = ['(Bijna) nooit', 'Soms', 'Regelmatig', 'Vaak', '(Bijna
 // en hangt er piloten aan. Voorlopig 1 actief project; de rest is
 // alvast voorbereid maar staat 'binnenkort' (available:false).
 // -------------------------------------------------------------
+// -------------------------------------------------------------
+// AGENDA — vaste evenementcategorieën
+// -------------------------------------------------------------
+window.EVENT_CATEGORIES = [
+  { id: 'groepsopdracht',      label: 'Groepsopdracht',       color: '#C8501E' },
+  { id: 'beurs',               label: 'Beurs',                color: '#1E4A7A' },
+  { id: 'hop-uitje',           label: 'HoP uitje',            color: '#15803D' },
+  { id: 'friends-of-aviation', label: 'Friends of Aviation',  color: '#7C3AED' },
+  { id: 'kerst',               label: 'Kerstbijeenkomst',     color: '#B91C1C' },
+  { id: 'training',            label: 'Trainingsdag',         color: '#D97706' },
+];
+
 window.LAB_PROJECTS = [
   {
     id: 'beurzen-evenementen',

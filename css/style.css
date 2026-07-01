@@ -199,7 +199,7 @@ textarea.input{resize:vertical;min-height:80px;line-height:1.55}
 .dash-stat .d{font-size:13px;color:var(--muted)}
 
 /* ========== Dashboard sectie-kaarten (Lab / Ontwikkeling / Oefenmateriaal) ========== */
-.sect-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:8px}
+.sect-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px;margin-top:8px}
 .sect-card{
   padding:26px;background:white;border:1px solid var(--sand);border-radius:14px;
   text-align:left;display:flex;flex-direction:column;gap:13px;min-height:210px;
@@ -239,6 +239,54 @@ textarea.input{resize:vertical;min-height:80px;line-height:1.55}
 .lab-check{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--ink);padding:7px 10px;border-radius:8px;cursor:pointer}
 .lab-check:hover{background:var(--sand)}
 .lab-check input{width:16px;height:16px;accent-color:var(--coral);flex-shrink:0}
+
+/* ========== Coaching ========== */
+.c-session{padding:14px 0;border-top:1px dashed var(--sand)}
+.c-session:first-child{border-top:none;padding-top:0}
+.c-fb{display:flex;gap:10px;margin-top:10px;padding:12px 14px;background:var(--cream);border:1px solid var(--sand);border-radius:10px;color:var(--navy)}
+.c-action{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--sand)}
+.c-action:first-child{border-top:none}
+.c-check{width:22px;height:22px;border-radius:6px;border:2px solid var(--sand);background:white;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:white;cursor:pointer}
+.c-check.on{background:#15803D;border-color:#15803D}
+.c-note{padding:12px 0;border-top:1px dashed var(--sand)}
+.c-note:first-child{border-top:none;padding-top:0}
+
+/* ========== Agenda & events ========== */
+.ev-list{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.ev-card{display:flex;align-items:center;gap:16px;padding:16px 18px;background:white;border:1px solid var(--sand);border-radius:12px;cursor:pointer;transition:border-color .15s, transform .15s}
+.ev-card:hover{border-color:var(--navy);transform:translateY(-2px)}
+.ev-date{width:58px;flex-shrink:0;text-align:center;border-right:1px solid var(--sand);padding-right:14px}
+.ev-d-day{font-family:'Fraunces',Georgia,serif;font-size:24px;font-weight:700;color:var(--navy-deep);line-height:1}
+.ev-d-mon{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-top:2px}
+.ev-title{font-family:'Fraunces',Georgia,serif;font-size:17px;font-weight:600;color:var(--navy-deep);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev-meta{font-size:12px;color:var(--muted);margin-top:2px}
+.ev-cap{font-size:13px;font-weight:600;color:var(--navy);flex-shrink:0;white-space:nowrap}
+.ev-cap.full{color:var(--danger)}
+.ev-detail-meta{display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--ink);margin-bottom:6px}
+.ev-chip{display:inline-block;margin:0 8px 8px 0;padding:6px 12px;background:var(--cream);border:1px solid var(--sand);border-radius:99px;font-size:13px;color:var(--navy-deep)}
+.ev-chip.wait{background:transparent;color:var(--muted)}
+
+/* ========== Lab-groepen ========== */
+.g-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;margin-top:8px}
+.g-card{padding:22px;background:white;border:1px solid var(--sand);border-radius:14px;display:flex;flex-direction:column;gap:8px}
+.g-card .g-ico{width:46px;height:46px;border-radius:12px;background:rgba(30,74,122,.12);color:var(--navy);display:flex;align-items:center;justify-content:center;margin-bottom:4px}
+.g-card .g-name{font-family:'Fraunces',Georgia,serif;font-size:19px;font-weight:600;color:var(--navy-deep)}
+.g-card .g-desc{font-size:13px;color:var(--muted);line-height:1.5;flex:1;min-height:20px}
+.g-card .g-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:6px}
+.g-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
+.g-stat{padding:18px;background:white;border:1px solid var(--sand);border-radius:12px;text-align:center;cursor:pointer;transition:border-color .15s,transform .15s}
+.g-stat:hover{border-color:var(--navy);transform:translateY(-2px)}
+.g-stat-v{font-family:'Fraunces',Georgia,serif;font-size:26px;font-weight:700;color:var(--navy-deep);line-height:1}
+.g-stat-l{font-size:12px;color:var(--muted);margin-top:4px}
+.g-task{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--sand)}
+.g-task:first-child{border-top:none}
+.g-task-status{width:110px;flex-shrink:0;padding:6px 8px;font-size:13px}
+.chat-row{display:flex;margin-bottom:10px}
+.chat-row.mine{justify-content:flex-end}
+.chat-bubble{max-width:75%;padding:9px 13px;border-radius:14px;background:var(--sand);font-size:14px;line-height:1.4}
+.chat-row.mine .chat-bubble{background:var(--navy);color:white}
+.chat-name{font-size:11px;font-weight:700;color:var(--coral-dark);margin-bottom:2px}
+.chat-time{font-size:10px;opacity:.6;margin-top:3px;text-align:right}
 
 /* ========== Feedback / session UI ========== */
 .code-hero{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:48px;font-weight:700;letter-spacing:.1em;color:white}
