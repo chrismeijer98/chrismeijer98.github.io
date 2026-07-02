@@ -110,4 +110,3 @@ Wachtwoorden worden opgeslagen als SHA-256 hash (via Web Crypto API, client-side
 ## Licentie
 
 Intern gebruik House of Pilots.
-test
