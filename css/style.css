@@ -307,6 +307,27 @@ textarea.input{resize:vertical;min-height:80px;line-height:1.55}
 .oef-answer{font-size:14px;margin:6px 0}
 .oef-expl{font-size:13px;color:var(--muted);line-height:1.6;background:var(--cream);padding:10px 12px;border-radius:8px;margin-top:8px;white-space:pre-line}
 
+/* ---- Interactieve spellen (coördinatie) ---- */
+.oef-game-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;font-size:14px;color:var(--ink)}
+.oef-timer{font-family:'Fraunces',Georgia,serif;font-weight:700;font-size:18px;color:var(--navy-deep);flex-shrink:0}
+.oef-canvas-wrap{background:white;border:1px solid var(--sand);border-radius:14px;overflow:hidden;display:flex;justify-content:center}
+.oef-canvas-wrap canvas{width:100%;max-width:640px;height:auto;display:block;cursor:crosshair;touch-action:none}
+.oef-live{margin-top:12px;font-size:13px;color:var(--muted);text-align:center;font-weight:600}
+.oef-stim{border-radius:14px;padding:70px 20px;text-align:center;font-family:'Fraunces',Georgia,serif;font-size:28px;font-weight:700;color:white;background:var(--navy);transition:background .1s}
+.oef-stim.wait{background:var(--sand);color:var(--muted)}
+.oef-stim.go{background:#15803D}
+.oef-stim.good{background:#15803D}
+.oef-stim.bad{background:var(--danger)}
+.oef-sum{display:flex;align-items:center;gap:12px;justify-content:center;flex-wrap:wrap;background:var(--cream);border:1px dashed var(--sand);border-radius:10px;padding:12px;margin-bottom:14px}
+.oef-sum-q{font-weight:700;color:var(--navy-deep);font-size:16px;margin-right:8px}
+
+/* ---- Voortgang / grafieken ---- */
+.oef-chart-wrap{background:white;border-radius:10px}
+.oef-chart-wrap canvas{width:100%;max-width:640px;height:auto;display:block}
+.oef-chart-stats{display:flex;gap:24px;margin-top:12px;flex-wrap:wrap}
+.oef-chart-stat-label{display:block;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:2px}
+.oef-chart-stat-val{display:block;font-family:'Fraunces',Georgia,serif;font-size:18px;font-weight:700;color:var(--navy-deep)}
+
 /* ========== Feedback / session UI ========== */
 .code-hero{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:48px;font-weight:700;letter-spacing:.1em;color:white}
 .link-box{background:rgba(255,255,255,.08);border:1px dashed rgba(255,255,255,.25);border-radius:8px;padding:10px 14px;font-size:12px;font-family:ui-monospace,monospace;cursor:pointer;word-break:break-all;color:rgba(255,255,255,.85)}

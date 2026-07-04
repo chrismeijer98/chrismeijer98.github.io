@@ -56,6 +56,7 @@
   qsa('.side-link').forEach((b) => b.addEventListener('click', () => go(b.dataset.tab)));
 
   function renderActiveTab() {
+    if (window._oefGameCleanup) { try { window._oefGameCleanup(); } catch (e) { /* noop */ } window._oefGameCleanup = null; }
     const tab = currentTab();
     qsa('.side-link').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     if (tab === 'agenda') renderAgenda();
@@ -151,10 +152,14 @@
     </div>`;
   }
   // Oefeningen-module (zie OEFENINGEN onderaan). hash:
-  //   #oefenmateriaal | /c/<catId> | /c/<catId>/x/<typeId>
+  //   #oefenmateriaal | /c/<catId> | /c/<catId>/voortgang | /c/<catId>/x/<typeId>
   function renderOefenmateriaal() {
     const parts = hashParts();
-    if (parts[1] === 'c' && parts[2] && parts[3] === 'x' && parts[4]) return renderExercisePlayer(parts[2], parts[4]);
+    if (parts[1] === 'c' && parts[2] && parts[3] === 'x' && parts[4]) {
+      if ((INTERACTIVE_EXERCISES[parts[2]] || {})[parts[4]]) return renderInteractivePlayer(parts[2], parts[4]);
+      return renderExercisePlayer(parts[2], parts[4]);
+    }
+    if (parts[1] === 'c' && parts[2] && parts[3] === 'voortgang') return renderOefenProgress(parts[2]);
     if (parts[1] === 'c' && parts[2]) return renderCategoryDetail(parts[2]);
     return renderOefeningenIndex();
   }
@@ -2017,14 +2022,21 @@
   // Voortgang per categorie uit score-rijen (laatste score per type)
   function oefenProgress(catId, scores) {
     const data = oefenData(catId);
-    const groups = oefenGroups(data).filter((g) => g.questions.length);
+    const playableIds = INTERACTIVE_EXERCISES[catId] ? Object.keys(INTERACTIVE_EXERCISES[catId]) : null;
+    const groups = oefenGroups(data).filter((g) => playableIds ? playableIds.includes(g.groupId) : g.questions.length);
     const rows = scores.filter((s) => s.category_id === catId);
     const latestByType = {};
     rows.forEach((r) => { latestByType[r.type_id] = r; }); // scores komen chronologisch → laatste wint
     const doneTypes = groups.filter((g) => latestByType[g.groupId]);
-    const avg = doneTypes.length ? Math.round(doneTypes.reduce((s, g) => s + Number(latestByType[g.groupId].score), 0) / doneTypes.length) : null;
+    // Gemiddelde alleen over percentage-scores; ms-scores (reactietijd) horen niet in dezelfde optelling
+    const pctRows = doneTypes.map((g) => latestByType[g.groupId]).filter((r) => (r.scale_type || 'percentage') === 'percentage');
+    const avg = pctRows.length ? Math.round(pctRows.reduce((s, r) => s + Number(r.score), 0) / pctRows.length) : null;
     const pct = groups.length ? Math.round((doneTypes.length / groups.length) * 100) : 0;
     return { avg, completion: pct, done: doneTypes.length, total: groups.length };
+  }
+
+  function oefenFormatScore(value, scaleType) {
+    return scaleType === 'milliseconds' ? `${Math.round(value)} ms` : `${Math.round(value)}%`;
   }
 
   const OEFEN_LOCK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
@@ -2099,7 +2111,7 @@
           await HopApi.setUnlock(cid, cb.dataset.unlock, cb.checked, session.user_id);
           cb.parentElement.querySelector('span').textContent = cb.checked ? 'Vrijgegeven' : 'Vergrendeld';
           toast(cb.checked ? 'Vrijgegeven' : 'Vergrendeld', 'success');
-        } catch (e) { toast('Mislukt', 'error'); cb.checked = !cb.checked; }
+        } catch (e) { console.error(e); toast('Mislukt: ' + e.message, 'error', 3500); cb.checked = !cb.checked; }
       });
     }
   }
@@ -2119,27 +2131,144 @@
       return;
     }
     const groups = oefenGroups(data);
+    const interactiveIds = INTERACTIVE_EXERCISES[catId] || {};
     const latestByType = {}; scores.filter((s) => s.category_id === catId).forEach((r) => { latestByType[r.type_id] = r; });
-    const bestByType = {}; scores.filter((s) => s.category_id === catId).forEach((r) => { bestByType[r.type_id] = Math.max(bestByType[r.type_id] || 0, Number(r.score)); });
+    const bestByType = {};
+    scores.filter((s) => s.category_id === catId).forEach((r) => {
+      const cur = bestByType[r.type_id];
+      const val = Number(r.score);
+      const scaleType = r.scale_type || 'percentage';
+      if (!cur) { bestByType[r.type_id] = { value: val, scaleType }; return; }
+      const better = scaleType === 'milliseconds' ? val < cur.value : val > cur.value;
+      if (better) bestByType[r.type_id] = { value: val, scaleType };
+    });
 
+    const hasScores = scores.some((s) => s.category_id === catId);
     main.innerHTML = `<div class="fade-up">
       <a href="#oefenmateriaal" class="back-link">${ICONS.chevLeft} Terug naar oefeningen</a>
       <div class="eyebrow">Categorie ${c.number}</div>
-      <h1 class="page-title">${escapeHtml(c.name)}.</h1>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap">
+        <h1 class="page-title">${escapeHtml(c.name)}.</h1>
+        ${hasScores ? `<button class="btn btn-ghost btn-sm" id="oef-progress-link">${ICONS.trend} Voortgang bekijken</button>` : ''}
+      </div>
       <p class="page-lead">${escapeHtml(data.description || '')}</p>
       <div>${groups.map((g) => {
-        const playable = g.questions.length > 0;
+        const playable = !!interactiveIds[g.groupId] || g.questions.length > 0;
+        const isInteractive = !!interactiveIds[g.groupId];
+        const hasGenerator = !!(QUESTION_GENERATORS[catId] || {})[g.groupId];
         const best = bestByType[g.groupId];
+        const bestLabel = best != null ? ` · beste ${oefenFormatScore(best.value, best.scaleType)}` : '';
+        const countLabel = hasGenerator ? `${OEFEN_MIN_QUESTIONS}+ vragen (ververst elke beurt)` : `${g.questions.length} vragen`;
+        const meta = isInteractive
+          ? `Interactieve oefening${bestLabel}`
+          : (playable ? `${countLabel}${g.levels.length ? ` · ${g.levels.length} niveaus` : ''}${bestLabel}` : 'Interactieve oefening — komt in een latere fase');
         return `<div class="lab-assign-row">
           <div style="flex:1;min-width:0">
             <div style="font-weight:600;color:var(--navy-deep)">${escapeHtml(g.name)}</div>
-            <div style="font-size:12px;color:var(--muted)">${playable ? `${g.questions.length} vragen${g.levels.length ? ` · ${g.levels.length} niveaus` : ''}${best != null ? ` · beste ${best}%` : ''}` : 'Interactieve oefening — komt in een latere fase'}</div>
+            <div style="font-size:12px;color:var(--muted)">${meta}</div>
           </div>
           ${playable ? `<button class="btn btn-coral btn-sm" data-start="${g.groupId}">${best != null ? 'Opnieuw' : 'Start'} ${ICONS.arrowRight}</button>` : `<span class="pill" style="background:var(--sand);color:var(--muted)">Binnenkort</span>`}
         </div>`;
       }).join('')}</div>
     </div>`;
     qsa('[data-start]').forEach((b) => b.onclick = () => go('oefenmateriaal', 'c/' + catId + '/x/' + b.dataset.start));
+    if (hasScores) qs('#oef-progress-link').onclick = () => go('oefenmateriaal', 'c/' + catId + '/voortgang');
+  }
+
+  // ---------- KANDIDAAT: voortgang (grafiek per oefening) ----------
+  async function renderOefenProgress(catId) {
+    const main = qs('#main');
+    const c = oefenCat(catId);
+    const data = oefenData(catId);
+    if (!c || !data) { main.innerHTML = `<div class="fade-up"><a href="#oefenmateriaal" class="back-link">${ICONS.chevLeft} Terug</a><div class="card" style="color:var(--danger)">Onbekende categorie.</div></div>`; return; }
+    main.innerHTML = `<div class="fade-up"><div class="spinner" style="margin:80px auto"></div></div>`;
+    let scores = [];
+    try { scores = await HopApi.listExerciseScores(session.user_id); } catch (e) { console.warn(e); }
+
+    const rows = scores.filter((s) => s.category_id === catId)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const byType = {};
+    rows.forEach((r) => { (byType[r.type_id] = byType[r.type_id] || []).push(r); });
+    const groups = oefenGroups(data).filter((g) => byType[g.groupId] && byType[g.groupId].length);
+
+    const backHref = '#oefenmateriaal/c/' + catId;
+    main.innerHTML = `<div class="fade-up">
+      <a href="${backHref}" class="back-link">${ICONS.chevLeft} Terug naar ${escapeHtml(c.name)}</a>
+      <div class="eyebrow">Categorie ${c.number} · Voortgang</div>
+      <h1 class="page-title">Voortgang.</h1>
+      <p class="page-lead">Jouw scores per oefening over tijd. Bij reactietijd (ms) is lager beter.</p>
+      <div id="prog-body"></div>
+    </div>`;
+
+    const body = qs('#prog-body');
+    if (!groups.length) {
+      body.innerHTML = `<div class="card" style="border-style:dashed;text-align:center;color:var(--muted);padding:50px">Nog geen scores in deze categorie.</div>`;
+      return;
+    }
+
+    body.innerHTML = groups.map((g) => {
+      const list = byType[g.groupId];
+      const scaleType = list[list.length - 1].scale_type || 'percentage';
+      const first = list[0], latest = list[list.length - 1];
+      const bestVal = scaleType === 'milliseconds' ? Math.min(...list.map((r) => Number(r.score))) : Math.max(...list.map((r) => Number(r.score)));
+      const improved = scaleType === 'milliseconds' ? Number(latest.score) < Number(first.score) : Number(latest.score) > Number(first.score);
+      return `<div class="card card-lg" style="margin-bottom:18px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <div style="font-weight:600;color:var(--navy-deep)">${escapeHtml(g.name)}</div>
+          <div style="font-size:12px;color:var(--muted)">${list.length} poging${list.length === 1 ? '' : 'en'}</div>
+        </div>
+        <div class="oef-chart-wrap"><canvas id="chart-${g.groupId}" width="640" height="180"></canvas></div>
+        <div class="oef-chart-stats">
+          <div><span class="oef-chart-stat-label">Eerste</span><span class="oef-chart-stat-val">${oefenFormatScore(first.score, scaleType)}</span></div>
+          <div><span class="oef-chart-stat-label">Laatste</span><span class="oef-chart-stat-val" style="color:${improved ? '#15803D' : 'var(--ink)'}">${oefenFormatScore(latest.score, scaleType)}</span></div>
+          <div><span class="oef-chart-stat-label">Beste</span><span class="oef-chart-stat-val">${oefenFormatScore(bestVal, scaleType)}</span></div>
+        </div>
+      </div>`;
+    }).join('');
+
+    groups.forEach((g) => drawProgressChart(qs('#chart-' + g.groupId), byType[g.groupId], c.color));
+  }
+
+  function drawProgressChart(canvas, rows, color) {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height, padL = 42, padR = 16, padT = 16, padB = 14;
+    ctx.clearRect(0, 0, W, H);
+    const scaleType = rows[rows.length - 1].scale_type || 'percentage';
+    const values = rows.map((r) => Number(r.score));
+    let min = Math.min(...values), max = Math.max(...values);
+    if (min === max) { min -= Math.max(1, Math.abs(min) * 0.1); max += Math.max(1, Math.abs(max) * 0.1); }
+    const pad = (max - min) * 0.15;
+    min -= pad; max += pad;
+    if (scaleType === 'percentage') { min = Math.max(0, min); max = Math.min(100, Math.max(max, min + 10)); }
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const x = (i) => padL + (rows.length > 1 ? (i / (rows.length - 1)) * plotW : plotW / 2);
+    const y = (v) => padT + (1 - (v - min) / (max - min)) * plotH;
+
+    ctx.strokeStyle = 'rgba(0,0,0,.07)'; ctx.lineWidth = 1;
+    ctx.font = '11px system-ui, sans-serif'; ctx.fillStyle = '#6B7280'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    [max, (max + min) / 2, min].forEach((v, idx) => {
+      const gy = padT + (idx / 2) * plotH;
+      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(W - padR, gy); ctx.stroke();
+      ctx.fillText(scaleType === 'milliseconds' ? Math.round(v) + 'ms' : Math.round(v) + '%', padL - 8, gy);
+    });
+
+    if (rows.length > 1) {
+      ctx.beginPath();
+      rows.forEach((r, i) => { const px = x(i), py = y(Number(r.score)); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+      ctx.lineTo(x(rows.length - 1), padT + plotH); ctx.lineTo(x(0), padT + plotH); ctx.closePath();
+      ctx.fillStyle = color + '18'; ctx.fill();
+    }
+
+    ctx.beginPath();
+    rows.forEach((r, i) => { const px = x(i), py = y(Number(r.score)); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+    ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
+
+    rows.forEach((r, i) => {
+      const px = x(i), py = y(Number(r.score));
+      ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fillStyle = 'white'; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = color; ctx.stroke();
+    });
   }
 
   // ---------- KANDIDAAT: vraag-speler ----------
@@ -2153,13 +2282,48 @@
   function oefenNormSeq(s) { return String(s || '').toLowerCase().replace(/[^0-9a-z]/g, ''); }
   function sjtColor(p) { return p >= 4 ? '#15803D' : p === 3 ? '#65A30D' : p === 2 ? '#D97706' : '#B91C1C'; }
 
+  // ---- Verversingslogica: elke start/herstart krijgt nieuwe of geschudde vragen ----
+  function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+  function oefenShuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+  }
+  const OEFEN_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+  // Voor types zonder generator: schud vraagvolgorde + optievolgorde/letters (correctheid blijft intact).
+  function oefenShuffleForReplay(questions) {
+    return oefenShuffle(questions).map((q) => {
+      if (Array.isArray(q.options) && q.options.length && q.questionType === 'sjt') {
+        const order = oefenShuffle(q.options.map((_, i) => i));
+        const options = order.map((origIdx, pos) => ({ ...q.options[origIdx], label: `${OEFEN_LETTERS[pos]}) ${oefenStripLetter(q.options[origIdx].label)}` }));
+        return { ...q, options };
+      }
+      if (Array.isArray(q.options) && q.options.length) {
+        const trimmed = String(q.answer || '').trim();
+        const correctIdx = q.options.findIndex((o) => oefenMCcorrect(o, q.answer));
+        const order = oefenShuffle(q.options.map((_, i) => i));
+        const options = order.map((origIdx, pos) => `${OEFEN_LETTERS[pos]}) ${oefenStripLetter(q.options[origIdx])}`);
+        let answer = q.answer;
+        if (correctIdx !== -1 && (/^[A-Za-z]\)/.test(trimmed) || /^[A-Za-z]$/.test(trimmed))) {
+          const newPos = order.indexOf(correctIdx);
+          answer = /^[A-Za-z]$/.test(trimmed) ? OEFEN_LETTERS[newPos] : `${OEFEN_LETTERS[newPos]}) ${oefenStripLetter(q.options[correctIdx])}`;
+        }
+        return { ...q, options, answer };
+      }
+      return q;
+    });
+  }
+
   async function renderExercisePlayer(catId, typeId) {
     const main = qs('#main');
     const c = oefenCat(catId);
     const data = oefenData(catId);
     const group = oefenGroups(data).find((g) => g.groupId === typeId);
     if (!c || !group || !group.questions.length) { main.innerHTML = `<div class="fade-up"><a href="#oefenmateriaal/c/${catId}" class="back-link">${ICONS.chevLeft} Terug</a><div class="card" style="color:var(--danger)">Oefening niet gevonden.</div></div>`; return; }
-    const questions = group.questions;
+    const generator = (QUESTION_GENERATORS[catId] || {})[typeId];
+    const questions = generator ? generator() : oefenShuffleForReplay(group.questions);
     const results = new Array(questions.length).fill(null); // true/false per vraag
     const sjtPoints = new Array(questions.length).fill(null); // 1-4 per SJT-vraag
     const isSJT = (c.kind === 'sjt') || (questions[0] && questions[0].questionType === 'sjt');
@@ -2264,4 +2428,1132 @@
 
     renderQ();
   }
+
+  // ==========================================================
+  // OEFENINGEN — interactieve spellen (categorie 2: Coördinatie)
+  // Elk spel krijgt (el, cfg, finish) waarbij finish(score, scaleType, detailHtml)
+  // de score opslaat en het eindscherm toont. cfg = ruwe exercise-config uit de JSON.
+  // ==========================================================
+  function oefenExerciseConfig(catId, typeId) {
+    const data = oefenData(catId);
+    return ((data && data.exercises) || []).find((e) => e.exerciseId === typeId) || null;
+  }
+
+  async function renderInteractivePlayer(catId, typeId) {
+    const main = qs('#main');
+    const c = oefenCat(catId);
+    const data = oefenData(catId);
+    const group = oefenGroups(data).find((g) => g.groupId === typeId);
+    const runner = (INTERACTIVE_EXERCISES[catId] || {})[typeId];
+    if (!c || !group || !runner) {
+      main.innerHTML = `<div class="fade-up"><a href="#oefenmateriaal/c/${catId}" class="back-link">${ICONS.chevLeft} Terug</a><div class="card" style="color:var(--danger)">Oefening niet gevonden.</div></div>`;
+      return;
+    }
+    let unlocks = [];
+    try { unlocks = await HopApi.listUnlocks(session.user_id); } catch (e) { console.warn(e); }
+    if (!unlocks.includes(catId)) {
+      main.innerHTML = `<div class="fade-up"><a href="#oefenmateriaal" class="back-link">${ICONS.chevLeft} Terug naar oefeningen</a>
+        <div class="card" style="border-style:dashed;text-align:center;color:var(--muted);padding:50px">${OEFEN_LOCK}<div style="margin-top:10px">Deze categorie is nog vergrendeld. Wordt vrijgegeven door je coach.</div></div></div>`;
+      return;
+    }
+    const cfg = oefenExerciseConfig(catId, typeId) || {};
+    const backHref = '#oefenmateriaal/c/' + catId;
+    main.innerHTML = `<div class="fade-up" style="max-width:720px">
+      <a href="${backHref}" class="back-link">${ICONS.chevLeft} Stoppen</a>
+      <div class="eyebrow">${escapeHtml(c.name)} · ${escapeHtml(group.name)}</div>
+      <div id="oef-game"></div>
+    </div>`;
+
+    function finish(score, scaleType, detailHtml) {
+      window._oefGameCleanup = null;
+      HopApi.saveExerciseScore({ candidate_id: session.user_id, category_id: catId, type_id: typeId, score, scale_type: scaleType }).catch((e) => console.warn(e));
+      qs('#oef-game').innerHTML = `<div class="card card-lg" style="text-align:center">
+        <div class="font-display" style="font-size:44px;font-weight:700;color:var(--navy-deep)">${oefenFormatScore(score, scaleType)}</div>
+        <div style="color:var(--muted);margin:6px 0 20px">${detailHtml}</div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <button class="btn btn-coral" id="oef-again">Opnieuw</button>
+          <a class="btn btn-ghost" href="${backHref}">Terug naar categorie</a>
+        </div>
+      </div>`;
+      qs('#oef-again').onclick = () => renderInteractivePlayer(catId, typeId);
+    }
+
+    runner(qs('#oef-game'), cfg, finish);
+  }
+
+  // ---------- Spel 1: Enkelvoudige tracking (muis volgt bewegende stip) ----------
+  function playTrackingSingle(el, cfg, finish) {
+    const duration = (cfg.durationSeconds || 60) * 1000;
+    const threshold = 20;
+    el.innerHTML = `
+      <div class="oef-game-head">
+        <div>Volg de oranje stip zo nauwkeurig mogelijk met je cursor.</div>
+        <div id="oef-timer" class="oef-timer">${Math.round(duration / 1000)}s</div>
+      </div>
+      <div class="oef-canvas-wrap"><canvas id="oef-canvas" width="640" height="320"></canvas></div>
+      <div id="oef-live" class="oef-live">Nauwkeurigheid: —</div>`;
+    const canvas = qs('#oef-canvas', el);
+    const ctx = canvas.getContext('2d');
+    const mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+    function onMove(e) {
+      const r = canvas.getBoundingClientRect();
+      mouse.x = (e.clientX - r.left) * (canvas.width / r.width);
+      mouse.y = (e.clientY - r.top) * (canvas.height / r.height);
+    }
+    canvas.addEventListener('mousemove', onMove);
+    let hits = 0, total = 0, raf;
+    const start = performance.now();
+    function pointPos(t) {
+      const w = canvas.width, h = canvas.height, pad = 40;
+      const x = pad + (w - 2 * pad) * (0.5 + 0.5 * Math.sin(t / 1700) * Math.cos(t / 2500));
+      const y = pad + (h - 2 * pad) * (0.5 + 0.5 * Math.sin(t / 2100 + 1.3));
+      return { x, y };
+    }
+    function loop(now) {
+      const elapsed = now - start;
+      if (elapsed >= duration) return endGame();
+      const p = pointPos(elapsed);
+      const dist = Math.hypot(mouse.x - p.x, mouse.y - p.y);
+      total++; if (dist <= threshold) hits++;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath(); ctx.arc(p.x, p.y, threshold, 0, Math.PI * 2); ctx.fillStyle = 'rgba(229,107,62,.15)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI * 2); ctx.fillStyle = '#E56B3E'; ctx.fill();
+      ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 5, 0, Math.PI * 2); ctx.fillStyle = dist <= threshold ? '#15803D' : '#1E4A7A'; ctx.fill();
+      qs('#oef-timer', el).textContent = Math.max(0, Math.ceil((duration - elapsed) / 1000)) + 's';
+      qs('#oef-live', el).textContent = 'Nauwkeurigheid: ' + Math.round((hits / total) * 100) + '%';
+      raf = requestAnimationFrame(loop);
+    }
+    raf = requestAnimationFrame(loop);
+    function cleanup() { cancelAnimationFrame(raf); canvas.removeEventListener('mousemove', onMove); }
+    window._oefGameCleanup = cleanup;
+    function endGame() {
+      cleanup();
+      const score = total ? Math.round((hits / total) * 100) : 0;
+      finish(score, 'percentage', `${score}% van de tijd binnen ${threshold}px van de stip (doel: boven 80%)`);
+    }
+  }
+
+  // ---------- Spel 2: Dubbele tracking (A voor stip 1, L voor stip 2) ----------
+  function playTrackingDouble(el, cfg, finish) {
+    const duration = 45000;
+    el.innerHTML = `
+      <div class="oef-game-head">
+        <div>Houd beide stippen in de groene zone. <strong>A</strong> voor stip 1 (links), <strong>L</strong> voor stip 2 (rechts).</div>
+        <div id="oef-timer" class="oef-timer">45s</div>
+      </div>
+      <div class="oef-canvas-wrap"><canvas id="oef-canvas" width="640" height="320"></canvas></div>
+      <div id="oef-live" class="oef-live">Stip 1: — · Stip 2: —</div>`;
+    const canvas = qs('#oef-canvas', el);
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const lanes = [
+      { x: W * 0.28, y: H / 2, v: 0, key: 'a', hits: 0, total: 0 },
+      { x: W * 0.72, y: H / 2, v: 0, key: 'l', hits: 0, total: 0 },
+    ];
+    const pressed = { a: false, l: false };
+    function onKeyDown(e) { const k = e.key.toLowerCase(); if (k === 'a' || k === 'l') pressed[k] = true; }
+    function onKeyUp(e) { const k = e.key.toLowerCase(); if (k === 'a' || k === 'l') pressed[k] = false; }
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    const start = performance.now();
+    let raf;
+    function zoneCenter(idx, t) { return H / 2 + Math.sin(t / 2600 + (idx === 0 ? 0 : 1.7)) * (H * 0.3); }
+    function loop(now) {
+      const elapsed = now - start;
+      if (elapsed >= duration) return endGame();
+      ctx.clearRect(0, 0, W, H);
+      lanes.forEach((ln, idx) => {
+        const thrust = pressed[ln.key] ? -0.55 : 0.35;
+        ln.v = (ln.v + thrust) * 0.92;
+        ln.y = Math.max(20, Math.min(H - 20, ln.y + ln.v));
+        const zc = zoneCenter(idx, elapsed);
+        const inZone = Math.abs(ln.y - zc) <= 26;
+        ln.total++; if (inZone) ln.hits++;
+        ctx.fillStyle = 'rgba(0,0,0,.04)'; ctx.fillRect(ln.x - 30, 10, 60, H - 20);
+        ctx.fillStyle = 'rgba(21,128,61,.18)'; ctx.fillRect(ln.x - 30, zc - 26, 60, 52);
+        ctx.beginPath(); ctx.arc(ln.x, ln.y, 12, 0, Math.PI * 2);
+        ctx.fillStyle = inZone ? '#15803D' : '#C8501E'; ctx.fill();
+      });
+      qs('#oef-timer', el).textContent = Math.max(0, Math.ceil((duration - elapsed) / 1000)) + 's';
+      const p1 = lanes[0].total ? Math.round((lanes[0].hits / lanes[0].total) * 100) : 0;
+      const p2 = lanes[1].total ? Math.round((lanes[1].hits / lanes[1].total) * 100) : 0;
+      qs('#oef-live', el).textContent = `Stip 1: ${p1}% · Stip 2: ${p2}%`;
+      raf = requestAnimationFrame(loop);
+    }
+    raf = requestAnimationFrame(loop);
+    function cleanup() { cancelAnimationFrame(raf); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); }
+    window._oefGameCleanup = cleanup;
+    function endGame() {
+      cleanup();
+      const p1 = lanes[0].total ? Math.round((lanes[0].hits / lanes[0].total) * 100) : 0;
+      const p2 = lanes[1].total ? Math.round((lanes[1].hits / lanes[1].total) * 100) : 0;
+      const combined = Math.round((p1 + p2) / 2);
+      finish(combined, 'percentage', `Stip 1: ${p1}% · Stip 2: ${p2}% · gecombineerd ${combined}%`);
+    }
+  }
+
+  // ---------- Spel 3: Reactiesnelheid enkelvoudig ----------
+  function playReactionSimple(el, cfg, finish) {
+    const rounds = cfg.rounds || 20;
+    let round = 0; const times = [];
+    let armed = false, waitingSince = null, timeoutId;
+    function onKey(e) {
+      if (e.code !== 'Space') return;
+      e.preventDefault();
+      const stim = qs('#oef-stim', el);
+      if (!armed) {
+        clearTimeout(timeoutId);
+        stim.className = 'oef-stim bad'; stim.textContent = 'Te vroeg! Wacht op groen.';
+        setTimeout(advance, 900);
+        return;
+      }
+      const rt = performance.now() - waitingSince;
+      times.push(rt);
+      armed = false;
+      stim.className = 'oef-stim good'; stim.textContent = Math.round(rt) + ' ms';
+      setTimeout(advance, 700);
+    }
+    function advance() { round++; if (round >= rounds) endGame(); else render(); }
+    function render() {
+      el.innerHTML = `
+        <div class="oef-game-head"><div>Druk zo snel mogelijk op <strong>SPATIE</strong> zodra het scherm groen wordt.</div><div class="oef-timer">${round}/${rounds}</div></div>
+        <div id="oef-stim" class="oef-stim wait">Wacht…</div>
+        <div class="oef-live">${times.length ? 'Gemiddelde: ' + Math.round(times.reduce((a, b) => a + b, 0) / times.length) + ' ms' : ''}</div>`;
+      armed = false;
+      const delay = 1200 + Math.random() * 2200;
+      timeoutId = setTimeout(() => {
+        armed = true;
+        waitingSince = performance.now();
+        const stim = qs('#oef-stim', el);
+        stim.className = 'oef-stim go'; stim.textContent = 'NU!';
+      }, delay);
+    }
+    window.addEventListener('keydown', onKey);
+    function cleanup() { clearTimeout(timeoutId); window.removeEventListener('keydown', onKey); }
+    window._oefGameCleanup = cleanup;
+    function endGame() {
+      cleanup();
+      const avg = times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0;
+      finish(avg, 'milliseconds', `Gemiddelde reactietijd over ${times.length} ronde${times.length === 1 ? '' : 's'} (doel: onder 250 ms)`);
+    }
+    render();
+  }
+
+  // ---------- Spel 4: Keuze-reactietaak ----------
+  function playChoiceReaction(el, cfg, finish) {
+    const rounds = cfg.rounds || 30;
+    const colors = [
+      { name: 'groen', bg: '#15803D', code: 'Space', label: 'SPATIE' },
+      { name: 'rood', bg: '#B91C1C', code: 'KeyR', label: 'R' },
+      { name: 'blauw', bg: '#1E4A7A', code: 'KeyB', label: 'B' },
+    ];
+    let round = 0, errors = 0; const times = [];
+    let current = null, armedAt = null, timeoutId;
+    function onKey(e) {
+      if (!['Space', 'KeyR', 'KeyB'].includes(e.code)) return;
+      e.preventDefault();
+      if (!current) return;
+      const correct = e.code === current.code;
+      const rt = performance.now() - armedAt;
+      if (correct) times.push(rt); else errors++;
+      qs('#oef-stim', el).textContent = correct ? Math.round(rt) + ' ms' : 'Fout!';
+      current = null;
+      round++;
+      setTimeout(() => { if (round >= rounds) endGame(); else render(); }, 700);
+    }
+    function render() {
+      el.innerHTML = `
+        <div class="oef-game-head"><div>Groen = SPATIE, Rood = R, Blauw = B. Reageer op de juiste toets.</div><div class="oef-timer">${round}/${rounds}</div></div>
+        <div id="oef-stim" class="oef-stim wait">Wacht…</div>
+        <div class="oef-live">${times.length ? `Gemiddelde: ${Math.round(times.reduce((a, b) => a + b, 0) / times.length)} ms · ${errors} fout${errors === 1 ? '' : 'en'}` : ''}</div>`;
+      current = null;
+      const delay = 1000 + Math.random() * 2000;
+      timeoutId = setTimeout(() => {
+        current = colors[Math.floor(Math.random() * colors.length)];
+        armedAt = performance.now();
+        const stim = qs('#oef-stim', el);
+        stim.className = 'oef-stim go'; stim.style.background = current.bg; stim.textContent = current.label;
+      }, delay);
+    }
+    window.addEventListener('keydown', onKey);
+    function cleanup() { clearTimeout(timeoutId); window.removeEventListener('keydown', onKey); }
+    window._oefGameCleanup = cleanup;
+    function endGame() {
+      cleanup();
+      const avgRt = times.length ? times.reduce((a, b) => a + b, 0) / times.length : 600;
+      const score = Math.round(avgRt + errors * 200);
+      finish(score, 'milliseconds', `${times.length} correcte reactie${times.length === 1 ? '' : 's'}, gemiddeld ${Math.round(avgRt)} ms · ${errors} fout${errors === 1 ? '' : 'en'} (+200ms boete per fout)`);
+    }
+    render();
+  }
+
+  // ---------- Spel 5: Go / No-go ----------
+  function playGoNoGo(el, cfg, finish) {
+    const totalStim = cfg.stimuli || 40;
+    const goCount = cfg.goStimuli || 10;
+    const letters = (function build() {
+      const pool = new Array(goCount).fill('G');
+      const distractors = 'ABCDEFHIJKLMNOPQRSTUVWXYZ'.split('');
+      while (pool.length < totalStim) pool.push(distractors[Math.floor(Math.random() * distractors.length)]);
+      for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+      return pool;
+    })();
+    let idx = 0, hits = 0, misses = 0, falseAlarms = 0, correctRejections = 0;
+    let responded = false, currentIsGo = false, showTimeout, hideTimeout;
+    function onKey(e) {
+      if (e.code !== 'Space' || responded) return;
+      e.preventDefault();
+      responded = true;
+      if (currentIsGo) hits++; else falseAlarms++;
+      const live = qs('#oef-live', el); if (live) live.textContent = 'Score: ' + (hits - falseAlarms);
+    }
+    function nextStim() {
+      if (idx >= totalStim) return endGame();
+      const stim = qs('#oef-stim', el);
+      stim.className = 'oef-stim wait'; stim.textContent = '+';
+      showTimeout = setTimeout(() => {
+        const letter = letters[idx];
+        currentIsGo = letter === 'G';
+        responded = false;
+        stim.className = 'oef-stim go'; stim.textContent = letter;
+        hideTimeout = setTimeout(() => {
+          if (currentIsGo && !responded) misses++;
+          if (!currentIsGo && !responded) correctRejections++;
+          idx++;
+          const t = qs('.oef-timer', el); if (t) t.textContent = `${idx}/${totalStim}`;
+          nextStim();
+        }, 900);
+      }, 350);
+    }
+    el.innerHTML = `
+      <div class="oef-game-head"><div>Reageer alleen op de letter <strong>G</strong> met SPATIE. Bij alle andere letters: niets doen.</div><div class="oef-timer">${idx}/${totalStim}</div></div>
+      <div id="oef-stim" class="oef-stim wait">+</div>
+      <div id="oef-live" class="oef-live">Score: 0</div>`;
+    window.addEventListener('keydown', onKey);
+    function cleanup() { clearTimeout(showTimeout); clearTimeout(hideTimeout); window.removeEventListener('keydown', onKey); }
+    window._oefGameCleanup = cleanup;
+    function endGame() {
+      cleanup();
+      const raw = hits - falseAlarms;
+      const score = Math.max(0, Math.round((raw / goCount) * 100));
+      finish(score, 'percentage', `${hits}/${goCount} correcte go's, ${falseAlarms} false alarm${falseAlarms === 1 ? '' : 's'}, ${misses} gemist`);
+    }
+    nextStim();
+  }
+
+  // ---------- Spel 6: Dual task (tracking + rekenen) ----------
+  function playDualTask(el, cfg, finish) {
+    const duration = 60000;
+    const sumInterval = (cfg.sumIntervalSeconds || 8) * 1000;
+    const threshold = 22;
+    el.innerHTML = `
+      <div class="oef-game-head"><div>Houd de cursor op de stip. Beantwoord tussendoor de som die verschijnt.</div><div id="oef-timer" class="oef-timer">60s</div></div>
+      <div id="oef-sum" class="oef-sum" style="display:none"></div>
+      <div class="oef-canvas-wrap"><canvas id="oef-canvas" width="640" height="320"></canvas></div>
+      <div id="oef-live" class="oef-live">Nauwkeurigheid: —</div>`;
+    const canvas = qs('#oef-canvas', el);
+    const ctx = canvas.getContext('2d');
+    const mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+    function onMove(e) {
+      const r = canvas.getBoundingClientRect();
+      mouse.x = (e.clientX - r.left) * (canvas.width / r.width);
+      mouse.y = (e.clientY - r.top) * (canvas.height / r.height);
+    }
+    canvas.addEventListener('mousemove', onMove);
+    let hits = 0, total = 0, sumCorrect = 0, sumTotal = 0, currentSum = null;
+    const start = performance.now();
+    let raf, sumTimer;
+    function pointPos(t) {
+      const w = canvas.width, h = canvas.height, pad = 40;
+      const x = pad + (w - 2 * pad) * (0.5 + 0.5 * Math.sin(t / 1500) * Math.cos(t / 2300));
+      const y = pad + (h - 2 * pad) * (0.5 + 0.5 * Math.sin(t / 1900 + 0.8));
+      return { x, y };
+    }
+    function newSum() {
+      const a = 1 + Math.floor(Math.random() * 9), b = 1 + Math.floor(Math.random() * 9);
+      const correct = a + b;
+      const wrong = correct + (Math.random() < 0.5 ? 1 : -1) * (1 + Math.floor(Math.random() * 3));
+      const opts = Math.random() < 0.5 ? [correct, wrong] : [wrong, correct];
+      currentSum = { opts, correct };
+      const box = qs('#oef-sum', el);
+      box.style.display = 'flex';
+      box.innerHTML = `<div class="oef-sum-q">${a} + ${b} = ?</div>
+        <button class="btn btn-ghost btn-sm" data-ans="${opts[0]}">A) ${opts[0]}</button>
+        <button class="btn btn-ghost btn-sm" data-ans="${opts[1]}">B) ${opts[1]}</button>`;
+      qsa('[data-ans]', box).forEach((b2) => b2.onclick = () => {
+        sumTotal++;
+        if (Number(b2.dataset.ans) === currentSum.correct) sumCorrect++;
+        currentSum = null;
+        box.style.display = 'none';
+      });
+    }
+    sumTimer = setInterval(() => { if (performance.now() - start < duration - 1500) newSum(); }, sumInterval);
+    const firstSumTimeout = setTimeout(newSum, 1800);
+    function loop(now) {
+      const elapsed = now - start;
+      if (elapsed >= duration) return endGame();
+      const p = pointPos(elapsed);
+      const dist = Math.hypot(mouse.x - p.x, mouse.y - p.y);
+      total++; if (dist <= threshold) hits++;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath(); ctx.arc(p.x, p.y, threshold, 0, Math.PI * 2); ctx.fillStyle = 'rgba(229,107,62,.15)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI * 2); ctx.fillStyle = '#E56B3E'; ctx.fill();
+      ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 5, 0, Math.PI * 2); ctx.fillStyle = dist <= threshold ? '#15803D' : '#1E4A7A'; ctx.fill();
+      qs('#oef-timer', el).textContent = Math.max(0, Math.ceil((duration - elapsed) / 1000)) + 's';
+      qs('#oef-live', el).textContent = `Tracking: ${Math.round((hits / total) * 100)}% · Sommen: ${sumCorrect}/${sumTotal}`;
+      raf = requestAnimationFrame(loop);
+    }
+    raf = requestAnimationFrame(loop);
+    function cleanup() { cancelAnimationFrame(raf); clearInterval(sumTimer); clearTimeout(firstSumTimeout); canvas.removeEventListener('mousemove', onMove); }
+    window._oefGameCleanup = cleanup;
+    function endGame() {
+      cleanup();
+      const trackPct = total ? Math.round((hits / total) * 100) : 0;
+      const sumPct = sumTotal ? Math.round((sumCorrect / sumTotal) * 100) : 0;
+      const combined = Math.round((trackPct + sumPct) / 2);
+      finish(combined, 'percentage', `Tracking ${trackPct}% · Sommen correct ${sumPct}% (${sumCorrect}/${sumTotal}) · gecombineerd ${combined}%`);
+    }
+  }
+
+  // ---------- Categorie 6: Engels & Communicatie — scenario-oefeningen ----------
+  // Zet de ruwe exercise-config om naar een reeks stappen {context, question, answer, hint}.
+  // Dekt alle vormen die in data/6-engels-communicatie.json voorkomen.
+  function engelsSteps(cfg) {
+    if (Array.isArray(cfg.questions)) {
+      return cfg.questions.map((q) => ({ context: cfg.context || null, question: q.question, answer: q.answer }));
+    }
+    if (cfg.questionType === 'readback') {
+      return [{ context: cfg.context, question: 'Lees de klaring correct terug.', answer: cfg.answer, hint: cfg.scoringPoints }];
+    }
+    if (cfg.questionType === 'error_detection') {
+      return [{ context: cfg.context, question: cfg.task || 'Markeer de fout en geef de correcte readback.', answer: cfg.error }];
+    }
+    if (cfg.situation) {
+      const sit = typeof cfg.situation === 'string' ? cfg.situation
+        : Object.entries(cfg.situation).map(([k, v]) => `${k}: ${v}`).join(' · ');
+      const context = (cfg.structure ? `Structuur: ${cfg.structure}\n\n` : '') + sit;
+      return [{ context, question: 'Formuleer je bericht.', answer: cfg.answer }];
+    }
+    return [];
+  }
+
+  function playScenarioSteps(el, cfg, finish) {
+    const gen = ENGELS_STEP_GENERATORS[cfg.exerciseId];
+    let steps;
+    if (gen) {
+      steps = [];
+      while (steps.length < OEFEN_MIN_QUESTIONS) steps = steps.concat(gen());
+    } else {
+      steps = engelsSteps(cfg);
+    }
+    if (!steps.length) { finish(0, 'percentage', 'Geen oefenstappen beschikbaar voor deze oefening.'); return; }
+    let i = 0; const results = [];
+    function renderStep() {
+      const s = steps[i];
+      el.innerHTML = `
+        <div class="oef-progress"><div class="oef-bar"><div style="width:${Math.round((i / steps.length) * 100)}%"></div></div><div style="font-size:12px;color:var(--muted);margin-top:6px">Stap ${i + 1} van ${steps.length}</div></div>
+        <div class="card card-lg">
+          ${s.context ? `<div class="oef-context">${escapeHtml(s.context)}</div>` : ''}
+          <div class="oef-question">${escapeHtml(s.question)}</div>
+          <textarea id="oef-inp" class="input" rows="3" placeholder="Schrijf je antwoord…"></textarea>
+          <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" id="oef-reveal">Toon modelantwoord</button></div>
+          <div id="oef-fb"></div>
+        </div>`;
+      qs('#oef-reveal', el).onclick = () => {
+        qs('#oef-fb', el).innerHTML = `<div class="oef-answer"><strong>Modelantwoord:</strong> ${escapeHtml(s.answer || '')}</div>
+          ${s.hint ? `<div class="oef-expl">${escapeHtml(s.hint)}</div>` : ''}
+          <div style="margin-top:12px;font-size:13px;color:var(--muted)">Had je dit goed?</div>
+          <div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-coral btn-sm" id="oef-self-y">Ja, goed</button><button class="btn btn-ghost btn-sm" id="oef-self-n">Niet helemaal</button></div>`;
+        qs('#oef-self-y', el).onclick = () => { results.push(true); next(); };
+        qs('#oef-self-n', el).onclick = () => { results.push(false); next(); };
+      };
+    }
+    function next() { i++; if (i >= steps.length) endGame(); else renderStep(); }
+    function endGame() {
+      const correct = results.filter(Boolean).length;
+      const score = Math.round((correct / steps.length) * 100);
+      finish(score, 'percentage', `${correct} van ${steps.length} zelf als goed beoordeeld`);
+    }
+    renderStep();
+  }
+
+  // ==========================================================
+  // OEFENINGEN — vraaggeneratoren (laag 3: verversingslogica)
+  // Elke functie levert bij elke aanroep een verse set vragen op,
+  // op basis van de refreshLogic-instructies in data/*.json.
+  // ==========================================================
+  function capitalize(s) { const t = String(s || ''); return t.charAt(0).toUpperCase() + t.slice(1); }
+  const DIGIT_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+  function spellDigits(n) { return String(n).split('').map((d) => DIGIT_WORDS[+d] || d).join(' '); }
+
+  // Elke oefening moet minstens dit aantal vragen bieden per beurt. Cyclet door
+  // de templates heen (elke aanroep = verse random parameters) tot dat gehaald is.
+  const OEFEN_MIN_QUESTIONS = 20;
+  function genFromTemplates(templates, minCount) {
+    minCount = minCount || OEFEN_MIN_QUESTIONS;
+    const qs = [];
+    let round = 0;
+    while (qs.length < minCount) {
+      templates.forEach((fn) => qs.push(fn(round)));
+      round++;
+    }
+    return oefenShuffle(qs);
+  }
+  // Voor onderdelen met een paar vaste feiten (eenmalig) + parametrische vragen (herhaald tot het minimum).
+  function genFixedPlusRepeating(fixed, repeating, minCount) {
+    minCount = minCount || OEFEN_MIN_QUESTIONS;
+    const qs = fixed.map((fn) => fn());
+    while (qs.length < minCount) repeating.forEach((fn) => qs.push(fn()));
+    return oefenShuffle(qs);
+  }
+
+  // ---- Cognitieve Vaardigheid ----
+  const MX_SHAPES = ['cirkel', 'vierkant', 'driehoek', 'ruit', 'ster', 'pijl'];
+  function genMatrixVragen() {
+    const templates = [
+      () => { // M1 — vorm + grootte per rij, kleurgradiënt per kolom (zoals V1)
+        const shapes = oefenShuffle(MX_SHAPES).slice(0, 2);
+        return {
+          id: 'M1', level: 1, questionType: 'matrix_grid', options: null,
+          question: `Rij 1: ${shapes[0]} klein zwart / ${shapes[0]} klein grijs / ${shapes[0]} klein wit. Rij 2: ${shapes[0]} groot zwart / ${shapes[0]} groot grijs / ${shapes[0]} groot wit. Rij 3: ${shapes[1]} groot zwart / ${shapes[1]} groot grijs / ? Wat is het ontbrekende figuur?`,
+          answer: `${capitalize(shapes[1])} groot wit`,
+          explanation: 'Patroon: vorm verandert per rij, grootte verandert per rij, kleur loopt van zwart naar grijs naar wit.',
+        };
+      },
+      () => { // M2 — aantal neemt toe per kolom (zoals V2)
+        const shapes = oefenShuffle(MX_SHAPES).slice(0, 3);
+        return {
+          id: 'M2', level: 1, questionType: 'matrix_grid', options: null,
+          question: `Rij 1: één ${shapes[0]} / twee ${shapes[0]}s / drie ${shapes[0]}s. Rij 2: één ${shapes[1]} / twee ${shapes[1]}s / drie ${shapes[1]}s. Rij 3: één ${shapes[2]} / twee ${shapes[2]}s / ? Wat is het ontbrekende figuur?`,
+          answer: `Drie ${shapes[2]}s`,
+          explanation: 'Het aantal neemt per kolom toe met 1.',
+        };
+      },
+      () => { // M3 — grootte neemt af + kleur wordt lichter (zoals V3)
+        const shapes = oefenShuffle(MX_SHAPES).slice(0, 3);
+        return {
+          id: 'M3', level: 2, questionType: 'matrix_grid', options: null,
+          question: `Rij 1: groot zwart ${shapes[0]} / middelgroot grijs ${shapes[0]} / klein wit ${shapes[0]}. Rij 2: groot zwart ${shapes[1]} / middelgroot grijs ${shapes[1]} / klein wit ${shapes[1]}. Rij 3: groot zwart ${shapes[2]} / middelgroot grijs ${shapes[2]} / ? Wat ontbreekt?`,
+          answer: `Kleine witte ${shapes[2]}`,
+          explanation: 'Twee eigenschappen veranderen tegelijk: grootte neemt af, kleur wordt lichter.',
+        };
+      },
+      () => { // M4 — elke richting komt precies één keer per rij voor (zoals V4)
+        const dirs = oefenShuffle(['omhoog', 'rechts', 'omlaag', 'links']).slice(0, 3);
+        const row1 = oefenShuffle(dirs), row2 = oefenShuffle(dirs), row3 = oefenShuffle(dirs);
+        return {
+          id: 'M4', level: 2, questionType: 'matrix_grid', options: null,
+          question: `Rij 1: pijl ${row1.join(' / pijl ')}. Rij 2: pijl ${row2.join(' / pijl ')}. Rij 3: pijl ${row3[0]} / pijl ${row3[1]} / ? Wat is de ontbrekende pijlrichting?`,
+          answer: `Pijl ${row3[2]}`,
+          explanation: 'Elke richting komt precies één keer per rij voor.',
+        };
+      },
+      () => { // M5 — behoud van totaal (zoals V5)
+        const total = randInt(2, 4);
+        const outsideSeq = [2, 1, 0];
+        const insideSeq = outsideSeq.map((o) => total - o);
+        return {
+          id: 'M5', level: 3, questionType: 'matrix_grid', options: null,
+          question: `Rij 1: ${outsideSeq[0]} zwarte stippen buiten cirkel, ${insideSeq[0]} wit(te) stip(pen) binnen. Rij 2: ${outsideSeq[1]} zwart(e) stip(pen) buiten, ${insideSeq[1]} witte stip(pen) binnen. Rij 3: ${outsideSeq[2]} stippen buiten, ? witte stippen binnen. Hoeveel witte stippen binnen in rij 3?`,
+          answer: `${insideSeq[2]} witte stippen binnen`,
+          explanation: `Totaal is altijd ${total}. Stippen buiten nemen af, stippen binnen nemen toe.`,
+        };
+      },
+      () => { // M6 — rotatie + kleurcyclus (zoals V6)
+        const dirs8 = ['omhoog', 'rechtsomhoog', 'rechts', 'rechtsomlaag', 'omlaag', 'linksomlaag', 'links', 'linksomhoog'];
+        const startIdx = randInt(0, 7);
+        const colors = oefenShuffle(['zwart', 'grijs', 'wit']);
+        const seqDirs = [0, 1, 2, 3].map((i) => dirs8[(startIdx + i) % 8]);
+        const seqColors = [0, 1, 2, 3].map((i) => colors[i % 3]);
+        return {
+          id: 'M6', level: 3, questionType: 'matrix_grid', options: null,
+          question: `Figuren roteren per stap 45 graden. Tegelijk wisselt de kleur per stap. Figuur 1: pijl ${seqDirs[0]} ${seqColors[0]}. Figuur 2: pijl ${seqDirs[1]} ${seqColors[1]}. Figuur 3: pijl ${seqDirs[2]} ${seqColors[2]}. Figuur 4: ?`,
+          answer: `Pijl ${seqDirs[3]} ${seqColors[3]}`,
+          explanation: 'Rotatie van 45 graden per stap. Kleur herhaalt na drie stappen.',
+        };
+      },
+    ];
+    return genFromTemplates(templates);
+  }
+
+  function genNumeriekVragen() {
+    const templates = [
+      () => { // geometrische reeks (zoals V13)
+        const start = randInt(1, 5), ratio = pick([2, 3]);
+        const seq = [start]; for (let i = 0; i < 4; i++) seq.push(seq[seq.length - 1] * ratio);
+        return { id: 'G1', level: 1, questionType: 'open', options: null, question: `Wat is het volgende getal in de reeks: ${seq.slice(0, 4).join(' — ')} — ?`, answer: String(seq[4]), explanation: `Elke stap wordt vermenigvuldigd met ${ratio}.` };
+      },
+      () => { // afnemend verschil (zoals V14)
+        const start = randInt(80, 120); const d0 = randInt(6, 10);
+        const seq = [start]; let d = d0;
+        for (let i = 0; i < 5; i++) { seq.push(seq[seq.length - 1] - d); d -= 1; }
+        return { id: 'G2', level: 1, questionType: 'open', options: null, question: `Wat is het volgende getal in de reeks: ${seq.slice(0, 5).join(' — ')} — ?`, answer: String(seq[5]), explanation: 'Het verschil neemt elke stap met 1 af.' };
+      },
+      () => { // x*mult dan -sub, herhaald (zoals V15)
+        const start = randInt(2, 5); const mult = pick([2, 3]); const sub = pick([1, 2, 3]);
+        const seq = [start];
+        for (let i = 0; i < 3; i++) { seq.push(seq[seq.length - 1] * mult); seq.push(seq[seq.length - 1] - sub); }
+        return { id: 'G3', level: 1, questionType: 'open', options: null, question: `Wat is het volgende getal in de reeks: ${seq.slice(0, 6).join(' — ')} — ?`, answer: String(seq[6]), explanation: `Patroon: x${mult}, dan -${sub}, herhaald.` };
+      },
+      () => { // snelheid = afstand/tijd (zoals V16)
+        const time = pick([1, 1.5, 2, 2.5, 3]); const speed = randInt(2, 5) * 50;
+        const dist = Math.round(time * speed);
+        return { id: 'G4', level: 2, questionType: 'open', options: null, question: `Een vliegtuig vliegt ${dist} nautical miles in ${String(time).replace('.', ',')} uur. Wat is de gemiddelde snelheid?`, answer: `${speed} knots`, explanation: `${dist} / ${String(time).replace('.', ',')} = ${speed}.` };
+      },
+      () => { // brandstofpercentage (zoals V17)
+        const perHour = randInt(3, 9) * 20; const tank = perHour * randInt(4, 6);
+        const hours = randInt(2, 4);
+        const used = perHour * hours; const pct = Math.round((used / tank) * 100);
+        return { id: 'G5', level: 2, questionType: 'open', options: null, question: `Een vliegtuig verbruikt ${perHour} liter per uur. De tank heeft ${tank} liter. Hoeveel procent is na ${hours} uur verbruikt?`, answer: `${pct}%`, explanation: `${hours} uur x ${perHour} = ${used} liter verbruikt. ${used} / ${tank} = ${pct}%.` };
+      },
+      () => { // brandstof-verhouding (zoals V18)
+        const perHourBase = randInt(150, 220); const baseHours = pick([3, 4, 5]);
+        const total = perHourBase * baseHours; const newHours = baseHours + randInt(1, 3);
+        const rate = total / baseHours; const answer = Math.round(rate * newHours);
+        return { id: 'G6', level: 2, questionType: 'open', options: null, question: `Brandstof voor ${baseHours} uur vlucht is ${total} kg. Hoeveel is nodig voor ${newHours} uur?`, answer: `${answer} kg`, explanation: `${total} / ${baseHours} = ${rate} kg/uur. ${rate} x ${newHours} = ${answer} kg.` };
+      },
+      () => { // tijdzone-aankomst (zoals V19)
+        const depH = randInt(6, 20), depM = pick([0, 15, 30, 45]);
+        const durH = randInt(1, 4), durM = pick([0, 15, 30, 45]);
+        const tz = randInt(-5, 8);
+        const totalMin = depH * 60 + depM + durH * 60 + durM;
+        const utcH = Math.floor(totalMin / 60) % 24, utcM = totalMin % 60;
+        let localMin = totalMin + tz * 60;
+        localMin = ((localMin % (24 * 60)) + 24 * 60) % (24 * 60);
+        const localH = Math.floor(localMin / 60), localM = localMin % 60;
+        const pad = (n) => String(n).padStart(2, '0');
+        return {
+          id: 'G7', level: 3, questionType: 'open', options: null,
+          question: `Vlucht duurt ${durH} uur en ${durM} minuten. Vertrek om ${pad(depH)}:${pad(depM)} UTC. Aankomst is in tijdzone UTC${tz >= 0 ? '+' : ''}${tz}. Hoe laat land je lokaal?`,
+          answer: `${pad(localH)}:${pad(localM)} lokale tijd`,
+          explanation: `${pad(depH)}:${pad(depM)} + ${durH}:${pad(durM)} = ${pad(utcH)}:${pad(utcM)} UTC. ${pad(utcH)}:${pad(utcM)} ${tz >= 0 ? '+' : '-'} ${Math.abs(tz)}:00 = ${pad(localH)}:${pad(localM)} lokaal.`,
+        };
+      },
+      () => { // brandstofduur minus reserve (zoals V20)
+        const totalFuel = randInt(10, 18) * 100; const burn = randInt(15, 26) * 10;
+        const reserveMin = pick([30, 45, 60]);
+        const reserveFuel = (reserveMin / 60) * burn;
+        const usable = totalFuel - reserveFuel;
+        const hours = usable / burn;
+        const h = Math.floor(hours); const m = Math.round((hours - h) * 60);
+        return {
+          id: 'G8', level: 3, questionType: 'open', options: null,
+          question: `Je hebt ${totalFuel} kg brandstof. Verbruik is ${burn} kg/uur. Je hebt een reserve van ${reserveMin} minuten nodig. Hoe lang kun je vliegen exclusief reserve?`,
+          answer: `Ongeveer ${h} uur en ${m} minuten`,
+          explanation: `Reserve: ${(reserveMin / 60).toFixed(2)} x ${burn} = ${reserveFuel.toFixed(1)} kg. Bruikbaar: ${totalFuel} - ${reserveFuel.toFixed(1)} = ${usable.toFixed(1)} kg. ${usable.toFixed(1)} / ${burn} = ${hours.toFixed(2)} uur ≈ ${h}u ${m}min.`,
+        };
+      },
+    ];
+    return genFromTemplates(templates);
+  }
+
+  function genWerkgeheugenVragen() {
+    const templates = [
+      () => {
+        const seq = Array.from({ length: randInt(5, 6) }, () => randInt(0, 9));
+        return { id: 'W1', level: 1, questionType: 'sequence', options: null, question: `Onthoud de volgende reeks en geef hem terug: ${seq.join(' — ')}`, answer: seq.join(' '), explanation: null };
+      },
+      () => {
+        const seq = Array.from({ length: randInt(5, 6) }, () => randInt(0, 9));
+        return { id: 'W2', level: 2, questionType: 'sequence', options: null, question: `Onthoud de volgende reeks en geef hem achterstevoren terug: ${seq.join(' — ')}`, answer: seq.slice().reverse().join(' '), explanation: null };
+      },
+      () => {
+        const letters = oefenShuffle('ABCDEFGHJKLMNPQRSTUVWXYZ'.split('')).slice(0, 3);
+        const numbers = Array.from({ length: 3 }, () => randInt(1, 9));
+        const items = oefenShuffle([...letters, ...numbers]);
+        const sortedLetters = letters.slice().sort();
+        const sortedNumbers = numbers.slice().sort((a, b) => a - b);
+        return { id: 'W3', level: 2, questionType: 'sequence', options: null, question: `Onthoud: ${items.join(' — ')}. Geef eerst de letters alfabetisch, dan de cijfers oplopend.`, answer: `${sortedLetters.join(' ')} — ${sortedNumbers.join(' ')}`, explanation: 'Twee sorteerregels tegelijk toepassen.' };
+      },
+      () => {
+        const colors = ['rood', 'blauw', 'groen', 'geel'];
+        const target = pick(colors);
+        const seq = Array.from({ length: 8 }, () => ({ color: pick(colors), num: randInt(1, 9) }));
+        const count = seq.filter((s) => s.color === target).length;
+        const sum = seq.reduce((a, s) => a + s.num, 0);
+        return { id: 'W4', level: 3, questionType: 'sequence', options: null, question: `Je hoort: ${seq.map((s) => `${s.color} — ${s.num}`).join(' — ')}. Hoeveel keer komt ${target} voor? Wat is de som van alle cijfers?`, answer: `${capitalize(target)} ${count}x. Som: ${sum}`, explanation: 'Twee vragen tegelijk op basis van één aangeboden reeks.' };
+      },
+    ];
+    return genFromTemplates(templates);
+  }
+
+  // ---- COMPASS-voorbereiding ----
+  function roBeschrijving(bank, pitch) {
+    const laag = bank === 'links' ? 'Linkervleugel laag' : 'Rechtervleugel laag';
+    const balk = pitch === 'omhoog' ? 'balk omhoog' : 'balk omlaag';
+    return `${laag}, ${balk}`;
+  }
+  function genRuimtelijkeOrientatieVragen() {
+    const angles = [15, 30, 45, 60];
+    const templates = [
+      () => { // R1 — mc, zoals V25
+        const bank = pick(['links', 'rechts']); const angle = pick(angles); const pitch = pick(['omhoog', 'omlaag']);
+        const oppositeBank = bank === 'links' ? 'rechts' : 'links';
+        const oppositePitch = pitch === 'omhoog' ? 'omlaag' : 'omhoog';
+        const correctText = roBeschrijving(bank, pitch);
+        const variants = oefenShuffle([roBeschrijving(bank, pitch), roBeschrijving(oppositeBank, pitch), roBeschrijving(bank, oppositePitch), roBeschrijving(oppositeBank, oppositePitch)]);
+        const options = variants.map((v, i) => `${OEFEN_LETTERS[i]}) ${v}`);
+        return {
+          id: 'R1', level: 1, questionType: 'multiple_choice',
+          question: `Het vliegtuig helt ${angle} graden naar ${bank}. De neus wijst ${pitch}. Wat laat de kunstmatige horizon zien?`,
+          options, answer: options[variants.indexOf(correctText)],
+          explanation: `Hellen naar ${bank} = ${bank}ervleugel daalt, ${oppositeBank}ervleugel omhoog.`,
+        };
+      },
+      () => { // R2 — mc, zoals V26 (recht en vlak, constant)
+        const opts = ['Blauwe helft boven, bruine helft onder, vleugelbalk in het midden', 'Alles blauw', 'Alles bruin', 'Balk schuin'];
+        const order = oefenShuffle([0, 1, 2, 3]);
+        const options = order.map((idx, pos) => `${OEFEN_LETTERS[pos]}) ${opts[idx]}`);
+        return { id: 'R2', level: 1, questionType: 'multiple_choice', question: 'Vliegtuig vliegt recht en vlak. Piloot kijkt naar de kunstmatige horizon. Wat ziet hij?', options, answer: options[order.indexOf(0)], explanation: 'Recht en vlak = standaardweergave van de horizon.' };
+      },
+      () => { // R3 — mc, zoals V28
+        const bank = pick(['links', 'rechts']);
+        const oppositeBank = bank === 'links' ? 'rechts' : 'links';
+        const depiction = bank === 'links' ? 'rechts omhoog, links omlaag' : 'links omhoog, rechts omlaag';
+        const labels = oefenShuffle([capitalize(bank), capitalize(oppositeBank), 'Geen helling', 'Neus omhoog']);
+        const options = labels.map((l, i) => `${OEFEN_LETTERS[i]}) ${l}`);
+        return {
+          id: 'R3', level: 2, questionType: 'multiple_choice',
+          question: `Piloot ziet de horizon schuin — ${depiction}. De neus wijst recht vooruit. In welke richting helt het vliegtuig?`,
+          options, answer: options[labels.indexOf(capitalize(bank))],
+          explanation: `${capitalize(bank)} banken laat de horizon ${oppositeBank} omhoog gaan vanuit pilootsperspectief.`,
+        };
+      },
+      () => { // R4 — open, zoals V27
+        const bank = pick(['links', 'rechts']); const angle = pick(angles); const pitch = pick(['omhoog', 'omlaag']);
+        const wingDesc = bank === 'rechts' ? 'Linkervleugellijn omhoog, rechtervleugellijn omlaag' : 'Rechtervleugellijn omhoog, linkervleugellijn omlaag';
+        const noseDesc = pitch === 'omlaag' ? 'Vliegtuigsymbool zakt onder de horizonlijn (neus omlaag)' : 'Vliegtuigsymbool stijgt boven de horizonlijn (neus omhoog)';
+        return {
+          id: 'R4', level: 2, questionType: 'open', options: null,
+          question: `Het vliegtuig maakt een bocht naar ${bank} met ${angle} graden bank. De neus ${pitch === 'omlaag' ? 'daalt' : 'stijgt'}. Beschrijf de kunstmatige horizon.`,
+          answer: `${wingDesc} (bank ${bank}). ${noseDesc}.`,
+          explanation: 'Twee bewegingen tegelijk: bank + neus.',
+        };
+      },
+      () => { // R5 — open, zoals V29
+        const dir = pick(['links', 'rechts']); const other = dir === 'links' ? 'rechts' : 'links';
+        return {
+          id: 'R5', level: 3, questionType: 'open', options: null,
+          question: `Na een 180-graden-bocht naar ${dir} bij constante hoogte — welke kant is nu ${other} van de passagier die voorin zit?`,
+          answer: `Wat oorspronkelijk ${dir} was is nu ${other} vanuit passagiersperspectief.`,
+          explanation: 'Ruimtelijke rotatie bijhouden na een volledige halve cirkel.',
+        };
+      },
+      () => { // R6 — open, zoals V30
+        const bank = pick(['links', 'rechts']); const angle = pick([45, 60, 75]);
+        return {
+          id: 'R6', level: 3, questionType: 'open', options: null,
+          question: `Vliegtuig is in een spiraalduik: bank ${angle} graden ${bank}, neus sterk omlaag. Welke drie instrumenten geven dit tegelijk aan?`,
+          answer: 'Kunstmatige horizon (bank + neus omlaag) + hoogtemeter (daalt snel) + VSI (sterk negatief)',
+          explanation: 'Drie instrumenten tegelijk lezen en combineren.',
+        };
+      },
+    ];
+    return genFromTemplates(templates);
+  }
+
+  function genInstrumentlezenVragen() {
+    const templates = [
+      () => {
+        const thousands = randInt(1, 9), hundreds = randInt(1, 9);
+        return { id: 'I1', level: 1, questionType: 'open', options: null, question: `De hoogtemeter toont: grote wijzer op ${hundreds}, kleine wijzer tussen ${thousands} en ${thousands + 1}. Op welke hoogte vliegt het vliegtuig?`, answer: `${thousands * 1000 + hundreds * 100} voet`, explanation: `Kleine wijzer = duizendtallen, grote wijzer = honderdtallen. Kleine tussen ${thousands}-${thousands + 1} + grote op ${hundreds} = ${thousands * 1000 + hundreds * 100}.` };
+      },
+      () => {
+        const lo = randInt(5, 8) * 10; const hi = lo + randInt(6, 9) * 10; const speed = randInt(lo, hi);
+        const nearTop = (hi - speed) <= 15;
+        return { id: 'I2', level: 1, questionType: 'open', options: null, question: `De snelheidsmeter toont ${speed} knots. De groene boog loopt van ${lo} tot ${hi} knots. Is de huidige snelheid binnen het normale werkbereik?`, answer: `Ja${nearTop ? ', maar dicht bij de bovenkant' : ''}`, explanation: `${speed} knots valt binnen de groene boog (${lo}-${hi}).` };
+      },
+      () => {
+        const vsi = pick([300, 400, 500, 600, 700, 800]) * pick([1, -1]);
+        const startAlt = randInt(15, 45) * 100; const minutes = randInt(2, 6);
+        const newAlt = startAlt + vsi * minutes;
+        return { id: 'I3', level: 2, questionType: 'open', options: null, question: `VSI toont ${vsi > 0 ? '+' : ''}${vsi} ft/min. Hoogte is nu ${startAlt} voet. Na ${minutes} minuten ongewijzigd — wat is de hoogte?`, answer: `${newAlt} voet`, explanation: `${startAlt} ${vsi >= 0 ? '+' : '-'} (${Math.abs(vsi)} x ${minutes}) = ${newAlt} voet.` };
+      },
+      () => {
+        const deg = randInt(1, 6); const dir = pick(['boven', 'onder']);
+        return { id: 'I4', level: 2, questionType: 'open', options: null, question: `De kunstmatige horizon toont het vliegtuigsymbool ${deg} graden ${dir} de horizonlijn. Wat doet het vliegtuig?`, answer: dir === 'boven' ? `Licht stijgen (nose up ${deg} graden)` : `Licht dalen (nose down ${deg} graden)`, explanation: `Symbool ${dir} lijn = neus ${dir} horizon = ${dir === 'boven' ? 'stijgen' : 'dalen'}.` };
+      },
+      () => {
+        const alt = randInt(20, 60) * 100; const vsi = pick([-400, -300, -200, -100, 100, 200]); const speed = randInt(90, 140); const bank = pick(['links', 'rechts']);
+        return { id: 'I5', level: 3, questionType: 'open', options: null, question: `Vier instrumenten tegelijk: Hoogtemeter: ${alt} voet. VSI: ${vsi} ft/min. Snelheidsmeter: ${speed} knots. Kunstmatige horizon: licht ${bank} gebankt. Beschrijf de vluchttoestand.`, answer: `Vliegtuig ${vsi < 0 ? 'daalt' : 'stijgt'} langzaam, licht gebankt naar ${bank}, snelheid ${speed < 100 ? 'laag' : speed > 130 ? 'hoog' : 'normaal'}. Mogelijk in naderingsbeurt.`, explanation: 'Alle vier instrumenten combineren tot één situatiebeschrijving.' };
+      },
+      () => {
+        const vsi = pick([100, 150, 200]); const seconds = pick([20, 30, 45]); const alt = randInt(20, 50) * 100;
+        return { id: 'I6', level: 3, questionType: 'open', options: null, question: `VSI toont +${vsi} ft/min maar na ${seconds} seconden is de hoogte nog steeds ${alt} voet. Klopt de VSI dan?`, answer: 'Nee — als de VSI stijging aangeeft maar de hoogte niet verandert, is de VSI waarschijnlijk defect.', explanation: 'Afwijkingsdetectie: instrumenten met elkaar vergelijken.' };
+      },
+    ];
+    return genFromTemplates(templates);
+  }
+
+  // ---- Situational Judgement & CRM ----
+  function genSjtVragen() {
+    const roles = ['co-piloot', 'eerste officier'];
+    const relabel = (opts) => oefenShuffle(opts).map((o, i) => ({ ...o, label: `${OEFEN_LETTERS[i]}) ${o.label}` }));
+    const templates = [
+      () => {
+        const role = pick(roles); const issue = pick(['te hoog en te snel', 'te laag en te langzaam']);
+        const suggestion = issue.includes('hoog') ? 'een doorstart' : 'volgas en stabiliseren';
+        return {
+          id: 'S1', level: 2, questionType: 'sjt',
+          question: `Je bent ${role}. De gezagvoerder nadert de landingsbaan maar is duidelijk ${issue}. Hij lijkt het niet in de gaten te hebben. Wat doe je?`,
+          options: relabel([
+            { label: 'Niets zeggen — hij is de gezagvoerder', points: 1 },
+            { label: 'Wachten tot hij het zelf opmerkt', points: 2 },
+            { label: `Rustig maar duidelijk zeggen: 'Captain, ik zie dat we ${issue} zijn, overweeg je ${suggestion}?'`, points: 4 },
+            { label: 'Direct zelf ingrijpen en het vliegtuig overnemen', points: 2 },
+          ]),
+          explanation: 'Assertief maar respectvol. De gezagvoerder behoudt het overzicht en de beslissing.',
+        };
+      },
+      () => {
+        const cause = pick(['een lange nachtvlucht', 'een dubbele dienst']);
+        return {
+          id: 'S2', level: 2, questionType: 'sjt',
+          question: `Na ${cause} voelt je captain zich duidelijk niet lekker. Hij wil toch doorvliegen. Wat doe je?`,
+          options: relabel([
+            { label: 'Akkoord gaan — hij weet zelf wat hij kan', points: 1 },
+            { label: 'Het melden bij de purser maar niet bij de captain', points: 2 },
+            { label: 'Direct operaties bellen zonder de captain te informeren', points: 2 },
+            { label: 'Met de captain in gesprek gaan over hoe hij zich voelt, samen beslissen, eventueel operaties informeren', points: 4 },
+          ]),
+          explanation: 'Samenwerken en transparantie. Niemand passeren, maar veiligheid wel serieus nemen.',
+        };
+      },
+      () => {
+        const errorType = pick(['brandstofberekening', 'gewichtsberekening']);
+        return {
+          id: 'S3', level: 2, questionType: 'sjt',
+          question: `Tijdens de briefing merk je dat de captain een fout maakt in de ${errorType}. Wat doe je?`,
+          options: relabel([
+            { label: 'Niets zeggen — misschien begrijp jij het niet goed', points: 1 },
+            { label: 'Na de briefing stiekem de berekening zelf aanpassen', points: 2 },
+            { label: 'Hem direct onderbreken en zeggen dat hij het fout heeft', points: 2 },
+            { label: `Na de briefing rustig zeggen: 'Captain, ik kom tot een andere ${errorType} — kunnen we dat samen nakijken?'`, points: 4 },
+          ]),
+          explanation: 'Geen confrontatie, geen omzeiling — transparant en constructief.',
+        };
+      },
+      () => {
+        const role = pick(roles);
+        return {
+          id: 'S4', level: 2, questionType: 'sjt',
+          question: `Je bent net begonnen als ${role}. De captain wijkt af van de standaardprocedure. Hij heeft meer ervaring. Wat doe je?`,
+          options: relabel([
+            { label: 'Niets — hij weet meer dan jij', points: 1 },
+            { label: 'De afwijking melden aan de vluchttoren', points: 1 },
+            { label: 'De afwijking opschrijven voor later en er niets van zeggen', points: 2 },
+            { label: "Rustig vragen: 'Captain, ik zie dat we afwijken van de standaard — heb je een specifieke reden zodat ik het begrijp?'", points: 4 },
+          ]),
+          explanation: 'Juniorstatus is nooit een reden om te zwijgen over veiligheidszaken.',
+        };
+      },
+      () => {
+        const report = pick(['rookgeur', 'een brandende geur']);
+        return {
+          id: 'S5', level: 2, questionType: 'sjt',
+          question: `Een passagier meldt ${report} via de purser. De captain zegt dat het onzin is. Wat doe je?`,
+          options: relabel([
+            { label: 'De captain vertrouwen en niets doen', points: 1 },
+            { label: 'Zelf even de cabine ingaan', points: 3 },
+            { label: 'Aandringen bij de captain, bij weigering het rookprotocol volgen', points: 4 },
+            { label: 'Direct een noodlandingsprocedure inzetten', points: 2 },
+          ]),
+          explanation: 'Rook aan boord is een serieuze melding — protocol volgt, niet de mening van de captain.',
+        };
+      },
+      () => ({
+        id: 'S6', level: 2, questionType: 'sjt',
+        question: 'De controller geeft een ingewikkelde clearance snel en onduidelijk. Wat doe je?',
+        options: relabel([
+          { label: 'Je schrijft op wat je dacht te horen en leest het terug', points: 2 },
+          { label: 'Je vraagt de controller om de clearance te herhalen', points: 4 },
+          { label: 'Je zegt niets en neemt aan dat je het goed begrepen hebt', points: 1 },
+          { label: 'Je vraagt de captain of hij het ook gehoord heeft', points: 3 },
+        ]),
+        explanation: 'Readback van een onzekere clearance is verplicht en professioneel. Nooit raden.',
+      }),
+      () => { // P1 — prioriteiten stellen (zoals V43); volgorde/logica blijft gelijk, alleen bewoording varieert
+        const medisch = pick(['Passagier is ziek', 'Passagier voelt zich zeer onwel']);
+        const atc = pick(['ATC vraagt koerswijziging te bevestigen', 'ATC vraagt een hoogtewijziging te bevestigen']);
+        const systeem = pick(['Systeemwaarschuwing licht op', 'Een waarschuwingslampje in de cockpit licht op']);
+        const admin = pick(['Captain vraagt je iets te berekenen', 'Captain vraagt je een tijdsberekening te maken']);
+        return {
+          id: 'P1', level: 3, questionType: 'priority_ranking', options: null,
+          question: `Vier dingen tegelijk: 1. ${medisch} (via purser) 2. ${atc} 3. ${systeem} 4. ${admin}. In welke volgorde pak je dit aan?`,
+          answer: '3 (veiligheid) → 2 (ATC bevestigen) → 1 (purser informeren) → 4 (berekening)',
+          explanation: 'Prioriteit: vliegtuigveiligheid eerst, communicatie tweede, medisch derde, administratief laatste.',
+        };
+      },
+    ];
+    return genFromTemplates(templates);
+  }
+
+  // ---- Luchtvaartkennis: meteorologie + navigatie ----
+  function genMetar() {
+    const airport = pick(['EHAM', 'EGLL', 'KJFK', 'LFPG', 'EDDF', 'LEMD']);
+    const day = randInt(1, 28), hour = randInt(0, 23), min = pick([0, 20, 50]);
+    const windDir = randInt(0, 35) * 10, windKt = randInt(3, 30);
+    const vis = pick(['9999', '8000', '6000']);
+    const cloudCode = pick(['FEW', 'SCT', 'BKN', 'OVC']), cloudAlt = randInt(2, 9) * 10;
+    const temp = randInt(-5, 28); const dew = temp - randInt(1, 8);
+    const qnh = randInt(985, 1035);
+    const pad2 = (n) => String(n).padStart(2, '0'), pad3 = (n) => String(n).padStart(3, '0');
+    const tempStr = temp < 0 ? 'M' + pad2(Math.abs(temp)) : pad2(temp);
+    const dewStr = dew < 0 ? 'M' + pad2(Math.abs(dew)) : pad2(dew);
+    const raw = `${airport} ${pad2(day)}${pad2(hour)}${pad2(min)}Z ${pad3(windDir)}${pad2(windKt)}KT ${vis} ${cloudCode}${pad3(cloudAlt)} ${tempStr}/${dewStr} Q${qnh}`;
+    return { raw, windDir, windKt, temp, dew, qnh };
+  }
+
+  function genMeteorologieVragen() {
+    const fixed = [
+      () => {
+        const opts = ['Een laaghangende mist', 'Een onweerswolk die zich verticaal uitstrekt tot soms 18 km hoogte', 'Een cirruswolk', 'Een bewolkingslaag op middelhoogte'];
+        const order = oefenShuffle([0, 1, 2, 3]);
+        const options = order.map((idx, pos) => `${OEFEN_LETTERS[pos]}) ${opts[idx]}`);
+        return { id: 'ME1', level: 1, questionType: 'multiple_choice', question: 'Wat is een cumulonimbus (CB)?', options, answer: options[order.indexOf(1)], explanation: 'CB-wolken zijn extreem gevaarlijk vanwege turbulentie, ijsafzetting, bliksem en hagel.' };
+      },
+      () => {
+        const opts = ['Overcast — meer dan 7/8 bewolking', 'Occasional visibility', 'Onbekende cloudbase', 'Only vertical clouds'];
+        const order = oefenShuffle([0, 1, 2, 3]);
+        const options = order.map((idx, pos) => `${OEFEN_LETTERS[pos]}) ${opts[idx]}`);
+        return { id: 'ME2', level: 1, questionType: 'multiple_choice', question: 'Wat betekent OVC in een METAR?', options, answer: options[order.indexOf(0)], explanation: 'FEW = 1-2/8, SCT = 3-4/8, BKN = 5-7/8, OVC = 8/8.' };
+      },
+      () => ({ id: 'ME3', level: 2, questionType: 'open', options: null, question: 'Wat is windshear en waarom is het gevaarlijk voor vliegtuigen?', answer: 'Windshear is een plotselinge verandering van windsnelheid en/of richting over een korte afstand. Gevaarlijk omdat het de lift plotseling kan doen afnemen, met name in de nadering of kort na de start.', explanation: null }),
+      () => ({ id: 'ME4', level: 3, questionType: 'open', options: null, question: 'Wat is een microburst en in welke vliegfase is het het gevaarlijkst?', answer: 'Een microburst is een sterke neerwaartse luchtstroom die bij de grond uitwaaiert. Gevaarlijkst bij start en landing: eerst een schijnbare headwind (meer lift), gevolgd door een plotselinge downwind die lift wegneemt.', explanation: null }),
+    ];
+    const repeating = [
+      () => { const m = genMetar(); return { id: 'ME5', level: 2, questionType: 'open', options: null, question: `METAR: ${m.raw}. Wat is de windrichting en sterkte?`, answer: `Wind uit ${m.windDir} graden met ${m.windKt} knots`, explanation: `Windgroep in de METAR = ${m.windDir} graden, ${m.windKt} knots.` }; },
+      () => { const m = genMetar(); return { id: 'ME6', level: 2, questionType: 'open', options: null, question: `METAR: ${m.raw}. Wat is de dauwpunttemperatuur?`, answer: `${m.dew} graden Celsius`, explanation: `Temperatuur/dauwpunt in de METAR: ${m.temp}/${m.dew}.` }; },
+      () => { const m = genMetar(); return { id: 'ME7', level: 2, questionType: 'open', options: null, question: `METAR: ${m.raw}. Wat is de QNH?`, answer: `${m.qnh} hPa`, explanation: `Q-groep in de METAR (Q${m.qnh}) = luchtdruk op zeeniveau in hPa.` }; },
+    ];
+    return genFixedPlusRepeating(fixed, repeating);
+  }
+
+  function genNavigatieVragen() {
+    const fixed = [
+      () => {
+        const opts = ['Hoogte', 'Magnetische richting ten opzichte van het VOR-station', 'Afstand tot de baan', 'Windrichting'];
+        const order = oefenShuffle([0, 1, 2, 3]);
+        const options = order.map((idx, pos) => `${OEFEN_LETTERS[pos]}) ${opts[idx]}`);
+        return { id: 'NA1', level: 1, questionType: 'multiple_choice', question: 'Wat meet een VOR?', options, answer: options[order.indexOf(1)], explanation: 'VOR = VHF Omnidirectional Range — geeft een radiale (richting) van het station.' };
+      },
+      () => {
+        const opts = ['De richting van de neus', 'De werkelijke weg die het vliegtuig over de grond aflegt', 'De magnetische koers', 'De windcorrectiehoek'];
+        const order = oefenShuffle([0, 1, 2, 3]);
+        const options = order.map((idx, pos) => `${OEFEN_LETTERS[pos]}) ${opts[idx]}`);
+        return { id: 'NA2', level: 1, questionType: 'multiple_choice', question: 'Wat is de Track?', options, answer: options[order.indexOf(1)], explanation: 'Track = ground track. Heading + wind = track.' };
+      },
+    ];
+    const repeating = [
+      () => {
+        const heading = pick([0, 45, 90, 135, 180, 225, 270, 315]);
+        const windSide = pick(['noorden', 'zuiden', 'oosten', 'westen']);
+        const driftMap = { noorden: 'zuiden', zuiden: 'noorden', oosten: 'westen', westen: 'oosten' };
+        const kt = randInt(10, 30);
+        return { id: 'NA3', level: 2, questionType: 'open', options: null, question: `Vliegtuig vliegt op heading ${String(heading).padStart(3, '0')}. Crosswind uit het ${windSide} met ${kt} knots. Naar welke kant drift het vliegtuig?`, answer: `Naar het ${driftMap[windSide]}`, explanation: `Wind van het ${windSide} duwt het vliegtuig richting ${driftMap[windSide]}.` };
+      },
+      () => {
+        const speed = randInt(8, 20) * 10; const time = pick([1, 1.5, 2, 2.5, 3]);
+        const dist = Math.round(speed * time);
+        return { id: 'NA4', level: 2, questionType: 'open', options: null, question: `Afstand: ${dist} nm. Snelheid: ${speed} knots. Hoelang duurt de vlucht?`, answer: `${String(time).replace('.', ',')} uur`, explanation: `${dist} / ${speed} = ${time} uur.` };
+      },
+      () => {
+        const course = pick([0, 45, 90, 135, 180, 225, 270, 315]);
+        const dist = randInt(100, 220); const tas = randInt(120, 180);
+        const windDir = (course + 315) % 360; const windKt = randInt(15, 35);
+        const crossComp = Math.round(windKt * Math.sin(Math.PI / 4)); const headComp = Math.round(windKt * Math.cos(Math.PI / 4));
+        const wcaDeg = Math.round((crossComp / tas) * (180 / Math.PI));
+        const gs = tas - headComp;
+        return {
+          id: 'NA5', level: 3, questionType: 'open', options: null,
+          question: `Koers ${String(course).padStart(3, '0')} graden, afstand ${dist} nm, TAS ${tas} knots. Wind ${String(windDir).padStart(3, '0')}/${windKt} knots. Bereken de wind correction angle (benadering) en de groundspeed.`,
+          answer: `WCA ≈ ${Math.abs(wcaDeg)} graden naar ${wcaDeg >= 0 ? 'rechts' : 'links'}. Tegenwindcomponent ≈ ${headComp} knots. Groundspeed ≈ ${gs} knots.`,
+          explanation: `Kruiswindcomponent: ${windKt} x sin(45°) ≈ ${crossComp} knots. Tegenwind: ${windKt} x cos(45°) ≈ ${headComp} knots.`,
+        };
+      },
+    ];
+    return genFixedPlusRepeating(fixed, repeating);
+  }
+
+  // ---- Verbaal redeneren: vaste, geverifieerde bank (20) — analogieën + syllogismen.
+  // Logica-opgaven lenen zich slecht voor runtime-generatie (risico op onlogische
+  // varianten), dus deze set is met de hand geverifieerd en wordt elke beurt
+  // geschud (volgorde + optie-letters) via oefenShuffleForReplay.
+  const VERBAAL_BANK = [
+    { id: 'VB1', level: 1, questionType: 'multiple_choice', question: 'Piloot staat tot cockpit als chirurg staat tot...?', options: ['A) Ziekenhuis', 'B) Operatiekamer', 'C) Patiënt', 'D) Scalpel'], answer: 'B) Operatiekamer', explanation: 'De werkplek van de professional.' },
+    { id: 'VB2', level: 1, questionType: 'multiple_choice', question: 'Vleugel staat tot lift als roer staat tot...?', options: ['A) Hoogte', 'B) Richting', 'C) Snelheid', 'D) Gewicht'], answer: 'B) Richting', explanation: 'Roer stuurt de richting zoals de vleugel lift genereert.' },
+    { id: 'VB3', level: 1, questionType: 'multiple_choice', question: 'METAR staat tot huidig weer als TAF staat tot...?', options: ['A) Windrichting', 'B) Weersverleden', 'C) Weersvoorspelling', 'D) Temperatuur'], answer: 'C) Weersvoorspelling', explanation: 'METAR = actueel, TAF = forecast.' },
+    { id: 'VB4', level: 1, questionType: 'multiple_choice', question: 'Hoogtemeter staat tot hoogte als snelheidsmeter staat tot...?', options: ['A) Temperatuur', 'B) Snelheid', 'C) Richting', 'D) Brandstof'], answer: 'B) Snelheid', explanation: 'Instrument staat tot de grootheid die het meet.' },
+    { id: 'VB5', level: 1, questionType: 'multiple_choice', question: 'Motor staat tot stuwkracht als vleugel staat tot...?', options: ['A) Gewicht', 'B) Weerstand', 'C) Lift', 'D) Geluid'], answer: 'C) Lift', explanation: 'Onderdeel staat tot de kracht die het levert.' },
+    { id: 'VB6', level: 1, questionType: 'multiple_choice', question: 'Km/u staat tot snelheid op de weg als knots staat tot...?', options: ['A) Snelheid in de lucht', 'B) Hoogte', 'C) Temperatuur', 'D) Afstand'], answer: 'A) Snelheid in de lucht', explanation: 'Eenheid staat tot de context waarin die gebruikt wordt.' },
+    { id: 'VB7', level: 1, questionType: 'multiple_choice', question: 'Thermometer staat tot temperatuur als kompas staat tot...?', options: ['A) Snelheid', 'B) Richting', 'C) Hoogte', 'D) Tijd'], answer: 'B) Richting', explanation: 'Instrument staat tot de grootheid die het meet.' },
+    { id: 'VB8', level: 1, questionType: 'multiple_choice', question: 'Arts staat tot patiënt als instructeur staat tot...?', options: ['A) Collega', 'B) Leerling', 'C) Manager', 'D) Toezichthouder'], answer: 'B) Leerling', explanation: 'Professional staat tot degene die hij begeleidt.' },
+    { id: 'VB9', level: 1, questionType: 'multiple_choice', question: 'Sleutel staat tot slot als wachtwoord staat tot...?', options: ['A) Computer', 'B) Account', 'C) Toetsenbord', 'D) Scherm'], answer: 'B) Account', explanation: 'Geeft toegang tot.' },
+    { id: 'VB10', level: 1, questionType: 'multiple_choice', question: 'Boek staat tot hoofdstuk als vlucht staat tot...?', options: ['A) Etappe', 'B) Cockpit', 'C) Bagage', 'D) Ticket'], answer: 'A) Etappe', explanation: 'Geheel staat tot een onderdeel ervan.' },
+    { id: 'VB11', level: 2, questionType: 'multiple_choice', question: "Alle Boeing 737's hebben twee motoren. Dit vliegtuig is een Boeing 737. Heeft dit vliegtuig zeker twee motoren?", options: ['A) Ja, zeker', 'B) Nee', 'C) Niet met zekerheid te zeggen', 'D) Alleen bij nieuwe modellen'], answer: 'A) Ja, zeker', explanation: 'Geldige redenering (modus ponens): als alle A een eigenschap B hebben en dit is een A, dan heeft dit zeker B.' },
+    { id: 'VB12', level: 2, questionType: 'multiple_choice', question: 'Alle helikopters hebben rotorbladen. Dit toestel heeft rotorbladen. Is dit toestel zeker een helikopter?', options: ['A) Ja', 'B) Nee', 'C) Niet met zekerheid te zeggen', 'D) Alleen als het een gyrocopter is'], answer: 'C) Niet met zekerheid te zeggen', explanation: 'Klassieke drogreden: dat alle helikopters rotorbladen hebben, betekent niet dat alléén helikopters die hebben.' },
+    { id: 'VB13', level: 2, questionType: 'multiple_choice', question: 'Als het zicht onder de minima is, mag een vliegtuig niet landen. Dit vliegtuig is net geland. Was het zicht onder de minima?', options: ['A) Ja', 'B) Nee', 'C) Mogelijk', 'D) Alleen bij nacht'], answer: 'B) Nee', explanation: 'Geldige redenering (modus tollens): het vliegtuig landde, dus was de voorwaarde voor niet-landen niet van toepassing.' },
+    { id: 'VB14', level: 2, questionType: 'multiple_choice', question: 'Alle IFR-vluchten vereisen een vliegplan. Deze vlucht heeft geen vliegplan. Wat volgt hieruit?', options: ['A) Het is een VFR-vlucht', 'B) Het is een illegale vlucht', 'C) De vlucht gaat niet door', 'D) Geen conclusie mogelijk'], answer: 'A) Het is een VFR-vlucht', explanation: 'Als IFR altijd een vliegplan vereist, dan geldt: geen vliegplan = geen IFR = VFR.' },
+    { id: 'VB15', level: 2, questionType: 'multiple_choice', question: 'Alle vluchten boven FL195 vereisen RVSM-goedkeuring. Dit vliegtuig heeft geen RVSM-goedkeuring. Op welke hoogte vliegt het?', options: ['A) Boven FL195', 'B) Op of onder FL195', 'C) Precies op FL195', 'D) Niet te bepalen'], answer: 'B) Op of onder FL195', explanation: 'Geldige redenering (modus tollens) toegepast op een luchtvaartregel.' },
+    { id: 'VB16', level: 3, questionType: 'multiple_choice', question: 'Piloten met meer dan 1500 vlieguren mogen als gezagvoerder vliegen. Iris heeft 1200 uur, maar is extra gecertificeerd — een erkende uitzonderingsgrond. Mag Iris als gezagvoerder vliegen?', options: ['A) Ja', 'B) Nee', 'C) Mogelijk', 'D) Alleen op korte vluchten'], answer: 'C) Mogelijk', explanation: 'De uitzondering maakt het onzeker maar niet onmogelijk.' },
+    { id: 'VB17', level: 2, questionType: 'multiple_choice', question: 'Om als eerste officier te mogen vliegen heb je een geldig medisch certificaat én een type rating nodig. Mark heeft een medisch certificaat maar geen type rating. Mag Mark als eerste officier vliegen?', options: ['A) Ja', 'B) Nee', 'C) Mogelijk', 'D) Alleen als instructeur'], answer: 'B) Nee', explanation: 'Beide voorwaarden zijn vereist; als er één ontbreekt, is niet aan de eis voldaan.' },
+    { id: 'VB18', level: 2, questionType: 'multiple_choice', question: 'Een vlucht is óf VFR óf IFR, nooit beide tegelijk. Deze vlucht is niet VFR. Wat voor vlucht is het?', options: ['A) VFR', 'B) IFR', 'C) Geen van beide', 'D) Niet te bepalen'], answer: 'B) IFR', explanation: 'Bij een exclusieve of: als het één niet is, is het het ander.' },
+    { id: 'VB19', level: 2, questionType: 'multiple_choice', question: 'Als de brandstof onder de wettelijke reserve komt, moet de piloot een prioriteitslanding aanvragen. De brandstof van dit vliegtuig zit onder de reserve. Wat moet de piloot doen?', options: ['A) Een prioriteitslanding aanvragen', 'B) Doorvliegen naar de oorspronkelijke bestemming', 'C) Wachten op nieuwe instructies', 'D) Niets, dit is normaal'], answer: 'A) Een prioriteitslanding aanvragen', explanation: 'Geldige redenering (modus ponens).' },
+    { id: 'VB20', level: 3, questionType: 'multiple_choice', question: 'Alle vluchten met een Mayday-melding krijgen voorrang van de verkeersleiding. Deze vlucht krijgt voorrang van de verkeersleiding. Heeft deze vlucht zeker een Mayday-melding?', options: ['A) Ja', 'B) Nee', 'C) Niet met zekerheid te zeggen', 'D) Alleen als het nacht is'], answer: 'C) Niet met zekerheid te zeggen', explanation: 'Ook een Pan-Pan-melding of andere noodsituatie kan voorrang krijgen — voorrang bewijst geen Mayday specifiek.' },
+  ];
+  function genVerbaalVragen() { return oefenShuffleForReplay(VERBAAL_BANK); }
+
+  // ---- Regelgeving: vaste, geverifieerde feitenbank (20) ----
+  const REGELGEVING_BANK = [
+    { id: 'RG1', level: 1, questionType: 'multiple_choice', question: 'Wat is de transpondercode voor een noodgeval?', options: ['A) 7600', 'B) 7700', 'C) 7500', 'D) 1200'], answer: 'B) 7700', explanation: '7700 = nood. 7600 = radiocontact verloren. 7500 = kaping.' },
+    { id: 'RG2', level: 1, questionType: 'multiple_choice', question: 'Wat is luchtruimklasse A?', options: ['A) Vrij luchtruim voor iedereen', 'B) Alleen IFR-vluchten, ATC-klaring verplicht', 'C) VFR mogelijk zonder klaring', 'D) Militair luchtruim'], answer: 'B) Alleen IFR-vluchten, ATC-klaring verplicht', explanation: 'Klasse A = hoogste gecontroleerde luchtruim. Alleen IFR, altijd klaring nodig.' },
+    { id: 'RG3', level: 2, questionType: 'open', options: null, question: 'Wat is het verschil tussen Mayday en Pan-Pan?', answer: 'Mayday = direct levensgevaar, onmiddellijke hulp nodig. Pan-Pan = urgente situatie maar nog geen direct levensgevaar.', explanation: null },
+    { id: 'RG4', level: 3, questionType: 'open', options: null, question: 'Een piloot vliegt VFR en raakt onbedoeld in IMC (mist). Wat zijn zijn verplichtingen en opties?', answer: 'VFR in IMC is illegaal en levensgevaarlijk. Opties: 180-gradenbocht terug naar VMC, noodklaring bij ATC aanvragen, Mayday uitsturen indien noodzakelijk.', explanation: null },
+    { id: 'RG5', level: 1, questionType: 'multiple_choice', question: 'Wat betekent de transpondercode 7600?', options: ['A) Noodgeval', 'B) Radiocommunicatie verloren', 'C) Kaping', 'D) VFR-vlucht'], answer: 'B) Radiocommunicatie verloren', explanation: '7600 wordt gebruikt bij verlies van radiocontact met ATC.' },
+    { id: 'RG6', level: 1, questionType: 'multiple_choice', question: 'Wat betekent de transpondercode 7500?', options: ['A) Noodgeval', 'B) Radiocommunicatie verloren', 'C) Kaping (unlawful interference)', 'D) Trainingsvlucht'], answer: 'C) Kaping (unlawful interference)', explanation: '7500 is de wereldwijde code voor onwettige inmenging/kaping.' },
+    { id: 'RG7', level: 2, questionType: 'multiple_choice', question: 'Wat is de standaard VFR-conspicuity-code in het Europese luchtruim?', options: ['A) 1200', 'B) 7000', 'C) 2000', 'D) 0000'], answer: 'B) 7000', explanation: '7000 is de Europese standaard conspicuity-code voor VFR-vluchten zonder specifieke toewijzing.' },
+    { id: 'RG8', level: 2, questionType: 'open', options: null, question: 'Wat is luchtruimklasse G en wat betekent dat voor een piloot?', answer: 'Ongecontroleerd luchtruim — geen ATC-klaring nodig, de piloot is zelf verantwoordelijk voor separatie (vooral bij VFR).', explanation: null },
+    { id: 'RG9', level: 2, questionType: 'open', options: null, question: 'Wat is een NOTAM en waarvoor dient het?', answer: 'Een officiële mededeling aan luchtvarenden over tijdelijke of belangrijke wijzigingen die relevant zijn voor de vlucht, bijv. een baan buiten gebruik, een obstakel, of een luchtruimbeperking.', explanation: null },
+    { id: 'RG10', level: 2, questionType: 'open', options: null, question: 'Wat is het doel van een vliegplan (flight plan)?', answer: 'Informeert de luchtverkeersleiding en search-and-rescue-diensten over de geplande vlucht, zodat hulp georganiseerd kan worden als de vlucht niet aankomt zoals gepland.', explanation: null },
+    { id: 'RG11', level: 1, questionType: 'open', options: null, question: 'Wat betekent IMC?', answer: 'Instrument Meteorological Conditions — weersomstandigheden waarbij op zicht vliegen niet veilig is en instrumentvliegen vereist is.', explanation: null },
+    { id: 'RG12', level: 1, questionType: 'open', options: null, question: 'Wat betekent VMC?', answer: 'Visual Meteorological Conditions — weersomstandigheden met voldoende zicht en wolkenbasis om op zicht te vliegen.', explanation: null },
+    { id: 'RG13', level: 2, questionType: 'open', options: null, question: 'Wat is het verschil tussen gecontroleerd en ongecontroleerd luchtruim?', answer: 'In gecontroleerd luchtruim heeft de luchtverkeersleiding gezag en is vaak een klaring nodig; in ongecontroleerd luchtruim is de piloot zelf verantwoordelijk voor separatie.', explanation: null },
+    { id: 'RG14', level: 1, questionType: 'open', options: null, question: 'Wat is de juiste noodoproep bij direct levensgevaar, en hoe vaak herhaal je die?', answer: "Mayday, driemaal achter elkaar uitgesproken ('Mayday Mayday Mayday').", explanation: null },
+    { id: 'RG15', level: 1, questionType: 'open', options: null, question: 'Wat is de juiste oproep bij een dringende situatie zonder direct levensgevaar, en hoe vaak herhaal je die?', answer: "Pan-Pan, driemaal achter elkaar uitgesproken ('Pan-Pan Pan-Pan Pan-Pan').", explanation: null },
+    { id: 'RG16', level: 2, questionType: 'open', options: null, question: 'Wat is de functie van een transponder?', answer: 'Zendt een identificatiecode (en bij Mode C/S ook hoogte-informatie) naar de secundaire surveillanceradar van de grond, zodat ATC het vliegtuig kan identificeren en volgen.', explanation: null },
+    { id: 'RG17', level: 3, questionType: 'open', options: null, question: 'Wat regelt ICAO Annex 2 in grote lijnen?', answer: 'De algemene verkeersregels voor de lucht (Rules of the Air), zoals rechten van overpad en basisregels voor VFR- en IFR-vluchten.', explanation: null },
+    { id: 'RG18', level: 3, questionType: 'open', options: null, question: 'Wat regelt ICAO Annex 1 in grote lijnen?', answer: 'De standaarden voor het licentiëren van luchtvaartpersoneel, zoals piloten en luchtverkeersleiders (Personnel Licensing).', explanation: null },
+    { id: 'RG19', level: 2, questionType: 'multiple_choice', question: 'Wat is de minimumleeftijd volgens de ICAO-standaard voor het behalen van een PPL (Private Pilot Licence)?', options: ['A) 16 jaar', 'B) 17 jaar', 'C) 18 jaar', 'D) 21 jaar'], answer: 'B) 17 jaar', explanation: 'ICAO Annex 1 stelt 17 jaar als standaard minimumleeftijd voor een PPL(A).' },
+    { id: 'RG20', level: 2, questionType: 'open', options: null, question: 'Waarom is het melden van een afwijking of incident (safety reporting) belangrijk in de luchtvaart?', answer: "Het stelt de sector in staat patronen en risico's te herkennen en te verbeteren voordat een incident tot een ongeval leidt — een kernprincipe van veiligheidscultuur (Just Culture).", explanation: null },
+  ];
+  function genRegelgevingVragen() { return oefenShuffleForReplay(REGELGEVING_BANK); }
+
+  // ---- Vliegtuigkennis: vaste, geverifieerde feitenbank (20) ----
+  const VLIEGTUIGKENNIS_BANK = [
+    { id: 'VK1', level: 1, questionType: 'multiple_choice', question: 'Wat doet een aileron?', options: ['A) Regelt de stijgsnelheid', 'B) Regelt de rolbeweging om de langsas', 'C) Remt het vliegtuig', 'D) Vergroot de lift bij lage snelheid'], answer: 'B) Regelt de rolbeweging om de langsas', explanation: 'Primair stuuroppervlak voor rollen. Werkt asymmetrisch: links omhoog = rechts omlaag.' },
+    { id: 'VK2', level: 2, questionType: 'multiple_choice', question: 'Wat doet een fowler flap bij uitklappen?', options: ['A) Vergroot alleen de camber', 'B) Vergroot zowel vleugeloppervlakte als camber, verhoogt lift sterk', 'C) Vergroot alleen de weerstand', 'D) Vermindert de lift'], answer: 'B) Vergroot zowel vleugeloppervlakte als camber, verhoogt lift sterk', explanation: 'Fowler flap schuift naar achteren én omlaag: meer oppervlak + meer camber.' },
+    { id: 'VK3', level: 3, questionType: 'open', options: null, question: 'Beschrijf wat er gebeurt tijdens een geïnduceerde stall in een bocht.', answer: 'In een bocht neemt de benodigde lift toe (loadfactor). De effectieve stalsnelheid stijgt daardoor. Bij te langzaam vliegen of te hard trekken kan de kritische hoek van aanval eerder bereikt worden dan verwacht. Gevaarlijk bij lage hoogte in de naderingsbocht.', explanation: null },
+    { id: 'VK4', level: 1, questionType: 'open', options: null, question: 'Wat doet het roer (rudder)?', answer: 'Regelt de gierbeweging (yaw) om de verticale as — stuurt de neus naar links of rechts.', explanation: null },
+    { id: 'VK5', level: 1, questionType: 'open', options: null, question: 'Wat doet het hoogteroer (elevator)?', answer: 'Regelt de stampbeweging (pitch) om de dwarsas — bepaalt of de neus omhoog of omlaag gaat.', explanation: null },
+    { id: 'VK6', level: 2, questionType: 'open', options: null, question: 'Wat is de functie van slats (voorrandkleppen)?', answer: 'Vergroten de kritische hoek van aanval voordat de vleugel stalt, wat lift bij lage snelheid verbetert.', explanation: null },
+    { id: 'VK7', level: 2, questionType: 'open', options: null, question: 'Wat is de functie van spoilers?', answer: 'Verminderen lift en verhogen weerstand, bijvoorbeeld om sneller te dalen of na landing de grip op de baan te vergroten.', explanation: null },
+    { id: 'VK8', level: 2, questionType: 'open', options: null, question: 'Wat gebeurt er tijdens een stall?', answer: 'De luchtstroom over de vleugel raakt los (separeert) doordat de kritische hoek van aanval wordt overschreden, waardoor de lift plotseling sterk afneemt.', explanation: null },
+    { id: 'VK9', level: 1, questionType: 'open', options: null, question: 'Wat is de functie van de trim?', answer: 'Vermindert de stuurkracht die de piloot continu moet leveren om een gewenste vliegstand (bijv. hoogte of snelheid) vast te houden.', explanation: null },
+    { id: 'VK10', level: 2, questionType: 'open', options: null, question: 'Wat is het verschil tussen een turbofan en een turboprop?', answer: 'Een turbofan wekt stuwkracht op via een grote fan met een relatief kleine jetkern; een turboprop drijft via een reductiekast een propeller aan voor de stuwkracht.', explanation: null },
+    { id: 'VK11', level: 1, questionType: 'open', options: null, question: 'Wat is de functie van het landingsgestel?', answer: 'Draagt het vliegtuig op de grond en absorbeert de schokken bij start en landing.', explanation: null },
+    { id: 'VK12', level: 2, questionType: 'open', options: null, question: 'Wat is V1 bij het opstijgen?', answer: 'De beslissingssnelheid: tot en met V1 kan de start nog veilig worden afgebroken, daarna niet meer en moet de start worden voortgezet.', explanation: null },
+    { id: 'VK13', level: 2, questionType: 'open', options: null, question: 'Wat is Vr?', answer: 'De rotatiesnelheid — de snelheid waarbij de piloot de neus omhoog haalt (rotate) om op te stijgen.', explanation: null },
+    { id: 'VK14', level: 2, questionType: 'open', options: null, question: 'Wat is Vne?', answer: 'De nooit-te-overschrijden snelheid (velocity never exceed) — de structurele snelheidsgrens van het vliegtuig.', explanation: null },
+    { id: 'VK15', level: 1, questionType: 'open', options: null, question: 'Wat is de algemene functie van flaps?', answer: 'Vergroten de lift (en meestal ook de weerstand) bij lagere snelheden, vooral belangrijk bij start en landing.', explanation: null },
+    { id: 'VK16', level: 2, questionType: 'open', options: null, question: 'Wat is het verschil tussen empty weight en MTOW?', answer: 'Empty weight is het gewicht van het lege toestel; MTOW (Maximum Take-Off Weight) is het maximaal toegestane gewicht bij het opstijgen.', explanation: null },
+    { id: 'VK17', level: 2, questionType: 'open', options: null, question: 'Wat is de functie van een winglet?', answer: 'Vermindert de tipwervels (induced drag) aan de vleugeltip, wat de brandstofefficiëntie verbetert.', explanation: null },
+    { id: 'VK18', level: 3, questionType: 'open', options: null, question: 'Wat is het zwaartepunt (center of gravity) en waarom is het belangrijk?', answer: 'Het punt waar het gewicht van het vliegtuig effectief aangrijpt; buiten de toegestane grenzen verslechtert het de stabiliteit en bestuurbaarheid.', explanation: null },
+    { id: 'VK19', level: 2, questionType: 'open', options: null, question: 'Wat is de functie van de horizontale stabilisator?', answer: 'Zorgt voor langsstabiliteit (pitch-stabiliteit) van het vliegtuig.', explanation: null },
+    { id: 'VK20', level: 2, questionType: 'open', options: null, question: 'Wat is de functie van de verticale stabilisator (het kielvlak)?', answer: 'Zorgt voor richtingsstabiliteit (yaw-stabiliteit) van het vliegtuig.', explanation: null },
+  ];
+  function genVliegtuigkennisVragen() { return oefenShuffleForReplay(VLIEGTUIGKENNIS_BANK); }
+
+  const QUESTION_GENERATORS = {
+    cognitief: {
+      matrixredeneren: genMatrixVragen,
+      'numeriek-redeneren': genNumeriekVragen,
+      werkgeheugen: genWerkgeheugenVragen,
+      'verbaal-redeneren': genVerbaalVragen,
+    },
+    compass: {
+      'ruimtelijke-orientatie': genRuimtelijkeOrientatieVragen,
+      instrumentlezen: genInstrumentlezenVragen,
+    },
+    'sjt-crm': { algemeen: genSjtVragen },
+    luchtvaartkennis: {
+      meteorologie: genMeteorologieVragen,
+      navigatie: genNavigatieVragen,
+      regelgeving: genRegelgevingVragen,
+      vliegtuigkennis: genVliegtuigkennisVragen,
+    },
+  };
+
+  // ---- Engels & Communicatie: scenario's met verse callsigns/waarden ----
+  function genAtcClearanceSteps() {
+    const callsign = pick(['KLM1234', 'TRA456', 'EZY789', 'BAW321', 'DLH654']);
+    const dest = pick(['Amsterdam', 'Rotterdam', 'Eindhoven']);
+    const sid = pick(['SUGOL', 'ARTIP', 'LOPIK', 'NIRSI']) + ' departure';
+    const flStr = 'FL' + String(pick([60, 70, 80, 90, 100])).padStart(3, '0');
+    const squawk = String(randInt(1000, 7677));
+    const context = `${callsign}, cleared to ${dest} via ${sid}, climb to ${flStr}, squawk ${squawk}.`;
+    return [
+      { context, question: 'Wat is de squawkcode?', answer: squawk },
+      { context, question: 'Welke hoogte?', answer: flStr },
+      { context, question: 'Via welke SID?', answer: sid },
+    ];
+  }
+  function genReadbackSteps() {
+    const callsign = pick(['TRA456', 'KLM123', 'EZY789', 'BAW321']);
+    const alt = pick([2000, 3000, 4000, 5000]); const qnh = randInt(990, 1030);
+    const context = `${callsign}, descend to ${alt} feet, QNH ${qnh}, report outer marker.`;
+    return [{ context, question: 'Lees de klaring correct terug.', answer: `Descend to ${alt} feet, QNH ${qnh}, wilco outer marker, ${callsign}.`, hint: 'Callsign aan het eind, alle informatie herhaald, correcte volgorde.' }];
+  }
+  function genErrorDetectionSteps() {
+    const callsign = pick(['EZY789', 'KLM456', 'TRA123']);
+    const trueDir = pick(['left', 'right']); const wrongDir = trueDir === 'left' ? 'right' : 'left';
+    const heading = String(pick([90, 180, 270, 360])).padStart(3, '0');
+    const alt = pick([3000, 4000, 5000]);
+    const context = `Controller: 'turn ${trueDir} heading ${heading}, descend to ${alt} feet.' Piloot leest terug: 'Turn ${wrongDir.toUpperCase()} heading ${heading}, descend to ${alt} feet, ${callsign}.'`;
+    return [{ context, question: 'Markeer de fout en geef de correcte readback.', answer: trueDir === 'left' ? 'Links werd rechts.' : 'Rechts werd links.' }];
+  }
+  const ICAO_ALPHABET = { A: 'Alpha', B: 'Bravo', C: 'Charlie', D: 'Delta', E: 'Echo', F: 'Foxtrot', G: 'Golf', H: 'Hotel', I: 'India', J: 'Juliett', K: 'Kilo', L: 'Lima', M: 'Mike', N: 'November', O: 'Oscar', P: 'Papa', Q: 'Quebec', R: 'Romeo', S: 'Sierra', T: 'Tango', U: 'Uniform', V: 'Victor', W: 'Whiskey', X: 'Xray', Y: 'Yankee', Z: 'Zulu' };
+  function genIcaoSteps() {
+    const word = pick(['AMSTERDAM', 'ROTTERDAM', 'SCHIPHOL', 'EINDHOVEN', 'ANTWERPEN', 'BRUSSEL', 'LONDEN', 'PARIJS']);
+    const answer = word.split('').map((ch) => ICAO_ALPHABET[ch] || ch).join(' — ');
+    return [{ context: null, question: `Spel het woord ${word} via het ICAO-alfabet.`, answer }];
+  }
+  function genPositionReportSteps() {
+    const callsign = pick(['KLM123', 'TRA456', 'EZY789', 'DLH234']);
+    const fix = pick(['SUGOL', 'ARTIP', 'LOPIK', 'NIRSI']);
+    const fl = pick([80, 100, 120, 140, 160]);
+    const dest = pick(['Amsterdam', 'Rotterdam', 'Eindhoven']);
+    const hh = randInt(6, 22), mm = pick([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const situation = { callsign, positie: `boven ${fix}`, hoogte: `FL${String(fl).padStart(3, '0')}`, bestemming: dest, geschatteAankomst: `${pad2(hh)}:${pad2(mm)}` };
+    const sitText = Object.entries(situation).map(([k, v]) => `${k}: ${v}`).join(' · ');
+    const answer = `${dest} Approach, ${callsign}, position ${fix}, flight level ${spellDigits(fl)}, estimating ${dest} at ${spellDigits(pad2(hh) + pad2(mm))}.`;
+    return [{ context: sitText, question: 'Formuleer je positierapport.', answer }];
+  }
+  function genEmergencySteps() {
+    const callsign = pick(['KLM123', 'TRA456', 'EZY789']);
+    const problem = pick(['Engine failure', 'Fuel emergency', 'Hydraulic failure', 'Smoke in cockpit']);
+    const alt = pick([2000, 3000, 4000, 5000]); const dist = randInt(5, 20); const dir = pick(['north', 'south', 'east', 'west']);
+    const airport = pick(['EHAM', 'EGLL', 'EDDF', 'LFPG']); const souls = randInt(2, 8); const fuelHrs = pick([1, 1.5, 2, 2.5]);
+    const structure = 'Mayday Mayday Mayday / [callsign] / [situatie] / [positie] / [bedoelingen] / [souls on board] / [brandstof]';
+    const situation = `${problem}, ${alt} voet, ${dist} nm van de baan.`;
+    const answer = `Mayday Mayday Mayday, ${callsign}, ${problem.toLowerCase()}, ${dist} miles ${dir} of ${airport}, ${alt} feet, requesting immediate return, ${souls} souls on board, ${String(fuelHrs).replace('.', ',')} hours fuel.`;
+    return [{ context: `Structuur: ${structure}\n\n${situation}`, question: 'Formuleer je noodbericht.', answer }];
+  }
+  const ENGELS_STEP_GENERATORS = {
+    'atc-clearance-begrijpen': genAtcClearanceSteps,
+    'correcte-readback': genReadbackSteps,
+    'fout-in-readback-detecteren': genErrorDetectionSteps,
+    'icao-alfabet': genIcaoSteps,
+    'positierapport-formuleren': genPositionReportSteps,
+    'noodcommunicatie-formuleren': genEmergencySteps,
+  };
+
+  const INTERACTIVE_EXERCISES = {
+    coordinatie: {
+      'enkelvoudige-tracking': playTrackingSingle,
+      'dubbele-tracking': playTrackingDouble,
+      'reactiesnelheid-enkelvoudig': playReactionSimple,
+      'keuze-reactietaak': playChoiceReaction,
+      'go-no-go': playGoNoGo,
+      'dual-task-tracking-rekenen': playDualTask,
+    },
+    'engels-communicatie': {
+      'atc-clearance-begrijpen': playScenarioSteps,
+      'correcte-readback': playScenarioSteps,
+      'fout-in-readback-detecteren': playScenarioSteps,
+      'icao-alfabet': playScenarioSteps,
+      'positierapport-formuleren': playScenarioSteps,
+      'noodcommunicatie-formuleren': playScenarioSteps,
+    },
+  };
 })();
