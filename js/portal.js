@@ -41,7 +41,7 @@
   //       #ontwikkeling/pcp[/<catId>]
   //       #ontwikkeling/feedback[/new | /manage/<code>]
   // --------------------------------------------------------
-  const TABS = ['dashboard', 'agenda', 'lab', 'ontwikkeling', 'oefenmateriaal'];
+  const TABS = ['dashboard', 'agenda', 'lab', 'ontwikkeling', 'oefenmateriaal', 'praktisch'];
   function currentTab() {
     const h = (location.hash || '#dashboard').replace(/^#/, '').split('/')[0];
     return TABS.includes(h) ? h : 'dashboard';
@@ -63,6 +63,7 @@
     else if (tab === 'lab') renderLab();
     else if (tab === 'ontwikkeling') renderOntwikkeling();
     else if (tab === 'oefenmateriaal') renderOefenmateriaal();
+    else if (tab === 'praktisch') renderPraktisch();
     else renderDashboard();
   }
   renderActiveTab();
@@ -106,6 +107,13 @@
           <div class="sect-d">Oefen voor de pilotenselecties (COMPASS, DLR, PILAPT) op je eigen tempo.</div>
           <div class="sect-foot" style="color:var(--navy)">Openen ${ICONS.arrowRight}</div>
         </button>
+
+        <button class="sect-card clickable" id="sect-prak">
+          <div class="sect-ico" style="background:rgba(229,107,62,.12);color:var(--coral-dark)">${ICONS.message}</div>
+          <div class="sect-t">Praktische zaken</div>
+          <div class="sect-d">Stel vragen aan elkaar, deel dingen over klantpartners, en geef verlof door.</div>
+          <div class="sect-foot" id="prak-status" style="color:var(--coral-dark)">Openen ${ICONS.arrowRight}</div>
+        </button>
       </div>
     </div>`;
 
@@ -113,6 +121,7 @@
     qs('#sect-lab').onclick = () => go('lab');
     qs('#sect-ontw').onclick = () => go('ontwikkeling');
     qs('#sect-oef').onclick = () => go('oefenmateriaal');
+    qs('#sect-prak').onclick = () => go('praktisch');
 
     // Verrijk de Agenda-kaart met aantal aankomende events
     try {
@@ -134,6 +143,19 @@
       const st = qs('#ontw-status');
       if (st) st.innerHTML = `PCP ${pct}% · ${sessions.length} feedbacksessie(s) ${ICONS.arrowRight}`;
     } catch (e) { console.warn(e); }
+
+    // Verrijk de Praktische zaken-kaart: coach ziet openstaande verlofaanvragen, piloot het aantal forumtopics
+    try {
+      const st = qs('#prak-status');
+      if (session.role === 'coach') {
+        const reqs = await HopApi.listLeaveRequests();
+        const pending = reqs.filter((r) => r.status === 'pending').length;
+        if (st) st.innerHTML = `${pending} verlofaanvraag${pending === 1 ? '' : 'en'} te beoordelen ${ICONS.arrowRight}`;
+      } else {
+        const threads = await HopApi.listPracticalThreads();
+        if (st) st.innerHTML = `${threads.length} forumtopic${threads.length === 1 ? '' : 's'} ${ICONS.arrowRight}`;
+      }
+    } catch (e) { /* tabel bestaat mogelijk nog niet */ }
   }
 
   // ==========================================================
@@ -1613,6 +1635,219 @@
         btn.disabled = false; btn.textContent = id ? 'Opslaan' : 'Evenement aanmaken';
       }
     };
+  }
+
+  // ==========================================================
+  // PRAKTISCHE ZAKEN — forum + verlofaanvragen
+  // hash: #praktisch | #praktisch/verlof | #praktisch/forum/<threadId>
+  // ==========================================================
+  const LEAVE_STATUS = {
+    pending:  { label: 'In afwachting', color: '#B45309',     bg: 'rgba(217,119,6,.16)' },
+    approved: { label: 'Goedgekeurd',   color: '#15803D',     bg: 'rgba(21,128,61,.14)' },
+    rejected: { label: 'Afgewezen',     color: 'var(--danger)', bg: 'rgba(185,28,28,.08)' },
+  };
+  function leaveStatusPill(status) {
+    const s = LEAVE_STATUS[status] || LEAVE_STATUS.pending;
+    return `<span class="pill" style="background:${s.bg};color:${s.color}">${s.label}</span>`;
+  }
+  function leaveDays(startStr, endStr) {
+    const start = new Date(startStr), end = new Date(endStr);
+    return Math.round((end - start) / 86400000) + 1;
+  }
+
+  function renderPraktisch() {
+    const parts = hashParts(); // ['praktisch', sub, ...]
+    if (parts[1] === 'forum' && parts[2]) return renderPracticalThread(parts[2]);
+    const sub = parts[1] === 'verlof' ? 'verlof' : 'forum';
+
+    qs('#main').innerHTML = `<div class="fade-up">
+      <div class="eyebrow">Praktische zaken</div>
+      <h1 class="page-title">Praktische zaken.</h1>
+      <p class="page-lead">Stel vragen aan elkaar, deel dingen over klantpartners, en geef verlof door.</p>
+      <div class="tabs" id="prak-tabs" style="margin-top:10px">
+        <button class="tab ${sub === 'forum' ? 'active' : ''}" data-sub="forum">Forum</button>
+        <button class="tab ${sub === 'verlof' ? 'active' : ''}" data-sub="verlof">Verlofaanvragen</button>
+      </div>
+      <div id="prak-body"><div class="spinner" style="margin:60px auto"></div></div>
+    </div>`;
+    qsa('#prak-tabs .tab').forEach((b) => b.addEventListener('click', () => go('praktisch', b.dataset.sub)));
+
+    if (sub === 'verlof') renderVerlof();
+    else renderPracticalForum();
+  }
+
+  // ---------- FORUM ----------
+  async function renderPracticalForum() {
+    const body = qs('#prak-body');
+    body.innerHTML = `<div class="card card-lg">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <div class="lab-section-label" style="margin:0">Forum</div>
+        <button class="btn btn-coral btn-sm" id="pf-new">${ICONS.plus} Nieuw onderwerp</button>
+      </div>
+      <div id="pf-form" style="display:none;margin-bottom:14px"></div>
+      <div id="pf-list"><div class="spinner" style="margin:30px auto"></div></div>
+    </div>`;
+
+    qs('#pf-new').onclick = () => {
+      const box = qs('#pf-form');
+      if (box.style.display === 'block') { box.style.display = 'none'; return; }
+      box.style.display = 'block';
+      box.innerHTML = `
+        <div class="field" style="margin-bottom:8px"><label class="field-label">Onderwerp</label><input id="pf-title" class="input" placeholder="bv. Vraag over klantpartner X"></div>
+        <div class="field" style="margin-bottom:8px"><label class="field-label">Bericht</label><textarea id="pf-body" class="input" rows="3" placeholder="Licht je vraag toe…"></textarea></div>
+        <button class="btn btn-coral btn-sm" id="pf-save">Plaatsen</button>`;
+      qs('#pf-save').onclick = async () => {
+        const title = qs('#pf-title').value.trim();
+        if (!title) { toast('Onderwerp is verplicht', 'error'); return; }
+        try {
+          const t = await HopApi.createPracticalThread({ title, created_by: session.user_id, body: qs('#pf-body').value.trim() });
+          toast('Geplaatst', 'success');
+          go('praktisch', 'forum/' + t.id);
+        } catch (e) { console.error(e); toast('Kon niet plaatsen: ' + e.message, 'error', 3000); }
+      };
+    };
+
+    let threads = [];
+    try { threads = await HopApi.listPracticalThreads(); } catch (e) { console.warn(e); }
+    const list = qs('#pf-list');
+    if (!threads.length) { list.innerHTML = `<div style="font-size:13px;color:var(--muted)">Nog geen onderwerpen. Stel de eerste vraag!</div>`; return; }
+    list.innerHTML = threads.map((t) => `<div class="lab-assign-row">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;color:var(--navy-deep)">${escapeHtml(t.title)}</div>
+        <div style="font-size:12px;color:var(--muted)">${escapeHtml(t.author || 'Onbekend')} · ${formatDate(t.created_at)}</div>
+      </div>
+      <button class="btn btn-primary btn-sm" data-open="${t.id}">Openen</button>
+      ${(t.created_by === session.user_id || session.role === 'coach') ? `<button class="btn btn-ghost btn-sm" data-del="${t.id}" style="color:var(--danger)">${ICONS.trash}</button>` : ''}
+    </div>`).join('');
+    qsa('#pf-list [data-open]').forEach((b) => b.onclick = () => go('praktisch', 'forum/' + b.dataset.open));
+    qsa('#pf-list [data-del]').forEach((b) => b.onclick = async () => {
+      if (!confirm('Onderwerp en alle reacties verwijderen?')) return;
+      try { await HopApi.deletePracticalThread(b.dataset.del); toast('Verwijderd', 'success'); renderPracticalForum(); }
+      catch (e) { toast('Kon niet verwijderen', 'error'); }
+    });
+  }
+
+  async function renderPracticalThread(threadId) {
+    const main = qs('#main');
+    main.innerHTML = `<div class="fade-up"><div class="spinner" style="margin:80px auto"></div></div>`;
+    let thread, posts = [];
+    try { [thread, posts] = await Promise.all([HopApi.getPracticalThread(threadId), HopApi.listPracticalPosts(threadId)]); } catch (e) { console.warn(e); }
+    if (!thread) {
+      main.innerHTML = `<div class="fade-up"><a href="#praktisch" class="back-link">${ICONS.chevLeft} Terug naar forum</a><div class="card" style="color:var(--danger)">Onderwerp niet gevonden.</div></div>`;
+      return;
+    }
+    main.innerHTML = `<div class="fade-up" style="max-width:720px">
+      <a href="#praktisch" class="back-link">${ICONS.chevLeft} Terug naar forum</a>
+      <div class="eyebrow">Praktische zaken · Forum</div>
+      <h1 class="page-title" style="font-size:32px">${escapeHtml(thread.title)}.</h1>
+      <div class="card card-lg">
+        <div id="pt-posts">${posts.length ? posts.map((p) => `<div class="c-note"><div style="font-size:12px;color:var(--muted)">${escapeHtml(p.author || 'Onbekend')} · ${formatDateTime(p.created_at)}</div><div style="white-space:pre-line;font-size:14px;margin-top:4px">${escapeHtml(p.body)}</div></div>`).join('') : '<div style="font-size:13px;color:var(--muted)">Nog geen berichten.</div>'}</div>
+        <div style="margin-top:16px;border-top:1px dashed var(--sand);padding-top:14px">
+          <textarea id="pt-body" class="input" rows="3" placeholder="Reageer…"></textarea>
+          <button class="btn btn-coral btn-sm" id="pt-send" style="margin-top:8px">Reageren</button>
+        </div>
+      </div>
+    </div>`;
+    qs('#pt-send').onclick = async () => {
+      const b = qs('#pt-body').value.trim();
+      if (!b) return;
+      try { await HopApi.createPracticalPost({ thread_id: threadId, author_id: session.user_id, body: b }); renderPracticalThread(threadId); }
+      catch (e) { toast('Kon niet plaatsen', 'error'); }
+    };
+  }
+
+  // ---------- VERLOFAANVRAGEN ----------
+  function renderVerlof() {
+    if (session.role === 'coach') return renderVerlofCoach();
+    return renderVerlofPilot();
+  }
+
+  async function renderVerlofPilot() {
+    const body = qs('#prak-body');
+    body.innerHTML = `<div class="card card-lg" style="margin-bottom:20px">
+      <div class="lab-section-label">Verlof aanvragen</div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+        <div class="field" style="margin:0;flex:1;min-width:150px"><label class="field-label">Van</label><input id="v-start" type="date" class="input"></div>
+        <div class="field" style="margin:0;flex:1;min-width:150px"><label class="field-label">Tot en met</label><input id="v-end" type="date" class="input"></div>
+        <div class="field" style="margin:0;flex:2;min-width:200px"><label class="field-label">Reden (optioneel)</label><input id="v-reason" class="input" placeholder="bv. vakantie, familiebezoek…"></div>
+        <button class="btn btn-coral" id="v-save">Aanvragen ${ICONS.arrowRight}</button>
+      </div>
+    </div>
+    <div class="lab-section-label">Mijn aanvragen</div>
+    <div id="v-list"><div class="spinner" style="margin:30px auto"></div></div>`;
+
+    qs('#v-save').onclick = async () => {
+      const start = qs('#v-start').value, end = qs('#v-end').value;
+      if (!start || !end) { toast('Vul begin- en einddatum in', 'error'); return; }
+      if (end < start) { toast('Einddatum moet op of na de begindatum liggen', 'error'); return; }
+      const btn = qs('#v-save'); btn.disabled = true; btn.textContent = 'Aanvragen…';
+      try {
+        await HopApi.createLeaveRequest({ user_id: session.user_id, start_date: start, end_date: end, days: leaveDays(start, end), reason: qs('#v-reason').value.trim() });
+        toast('Verlof aangevraagd', 'success');
+        renderVerlofPilot();
+      } catch (e) {
+        console.error(e); toast('Kon niet aanvragen: ' + e.message, 'error', 3000);
+        btn.disabled = false; btn.innerHTML = `Aanvragen ${ICONS.arrowRight}`;
+      }
+    };
+
+    let rows = [];
+    try { rows = await HopApi.listLeaveRequests(session.user_id); } catch (e) { console.warn(e); }
+    const list = qs('#v-list');
+    if (!rows.length) { list.innerHTML = `<div class="card" style="border-style:dashed;text-align:center;color:var(--muted)">Nog geen verlofaanvragen.</div>`; return; }
+    list.innerHTML = rows.map((r) => {
+      const d = r.days || leaveDays(r.start_date, r.end_date);
+      return `<div class="lab-assign-row">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;color:var(--navy-deep)">${formatDate(r.start_date)} – ${formatDate(r.end_date)} <span style="font-weight:400;color:var(--muted)">(${d} dag${d === 1 ? '' : 'en'})</span></div>
+          ${r.reason ? `<div style="font-size:12px;color:var(--muted)">${escapeHtml(r.reason)}</div>` : ''}
+          ${r.review_note ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">${escapeHtml(r.review_note)}</div>` : ''}
+        </div>
+        ${leaveStatusPill(r.status)}
+        ${r.status === 'pending' ? `<button class="btn btn-ghost btn-sm" data-del="${r.id}" style="color:var(--danger)">${ICONS.trash}</button>` : ''}
+      </div>`;
+    }).join('');
+    qsa('#v-list [data-del]').forEach((b) => b.onclick = async () => {
+      if (!confirm('Aanvraag intrekken?')) return;
+      try { await HopApi.deleteLeaveRequest(b.dataset.del); toast('Ingetrokken', 'success'); renderVerlofPilot(); }
+      catch (e) { toast('Kon niet intrekken', 'error'); }
+    });
+  }
+
+  async function renderVerlofCoach() {
+    const body = qs('#prak-body');
+    body.innerHTML = `<div id="v-list"><div class="spinner" style="margin:30px auto"></div></div>`;
+    let rows = [];
+    try { rows = await HopApi.listLeaveRequests(); } catch (e) { console.warn(e); }
+    const pending = rows.filter((r) => r.status === 'pending');
+    const reviewed = rows.filter((r) => r.status !== 'pending');
+
+    const row = (r, showActions) => {
+      const d = r.days || leaveDays(r.start_date, r.end_date);
+      return `<div class="lab-assign-row">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;color:var(--navy-deep)">${escapeHtml(r.full_name || 'Piloot')}</div>
+          <div style="font-size:12px;color:var(--muted)">${formatDate(r.start_date)} – ${formatDate(r.end_date)} (${d} dag${d === 1 ? '' : 'en'})${r.reason ? ' · ' + escapeHtml(r.reason) : ''}</div>
+        </div>
+        ${leaveStatusPill(r.status)}
+        ${showActions ? `<button class="btn btn-primary btn-sm" data-approve="${r.id}">${ICONS.check} Goedkeuren</button><button class="btn btn-ghost btn-sm" data-reject="${r.id}" style="color:var(--danger)">Afwijzen</button>` : ''}
+      </div>`;
+    };
+
+    qs('#v-list').innerHTML = `
+      <div class="lab-section-label">In afwachting (${pending.length})</div>
+      ${pending.length ? pending.map((r) => row(r, true)).join('') : '<div class="card" style="border-style:dashed;text-align:center;color:var(--muted);margin-bottom:20px">Niets om te beoordelen.</div>'}
+      ${reviewed.length ? `<div class="lab-section-label" style="margin-top:24px">Eerder beoordeeld</div>${reviewed.map((r) => row(r, false)).join('')}` : ''}
+    `;
+    qsa('#v-list [data-approve]').forEach((b) => b.onclick = async () => {
+      try { await HopApi.reviewLeaveRequest(b.dataset.approve, { status: 'approved', reviewed_by: session.user_id }); toast('Goedgekeurd', 'success'); renderVerlofCoach(); }
+      catch (e) { toast('Kon niet goedkeuren', 'error'); }
+    });
+    qsa('#v-list [data-reject]').forEach((b) => b.onclick = async () => {
+      if (!confirm('Verlofaanvraag afwijzen?')) return;
+      try { await HopApi.reviewLeaveRequest(b.dataset.reject, { status: 'rejected', reviewed_by: session.user_id }); toast('Afgewezen', 'success'); renderVerlofCoach(); }
+      catch (e) { toast('Kon niet afwijzen', 'error'); }
+    });
   }
 
   // ==========================================================

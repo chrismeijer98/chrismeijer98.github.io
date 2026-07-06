@@ -833,6 +833,78 @@
       guard(error);
       return data;
     },
+
+    // ==========================================================
+    // PRAKTISCHE ZAKEN — forum + verlofaanvragen
+    // ==========================================================
+    async listPracticalThreads() {
+      const { data, error } = await db().from('practical_threads')
+        .select('id, title, created_by, created_at, users(full_name)')
+        .order('created_at', { ascending: false });
+      guard(error);
+      return (data || []).map((t) => ({ ...t, author: (t.users || {}).full_name || '' }));
+    },
+    async getPracticalThread(id) {
+      const { data, error } = await db().from('practical_threads')
+        .select('id, title, created_by, created_at, users(full_name)')
+        .eq('id', id).maybeSingle();
+      guard(error);
+      if (!data) return null;
+      return { ...data, author: (data.users || {}).full_name || '' };
+    },
+    async createPracticalThread({ title, created_by, body }) {
+      const { data, error } = await db().from('practical_threads')
+        .insert({ title, created_by: created_by || null }).select().single();
+      guard(error);
+      if (body) await this.createPracticalPost({ thread_id: data.id, author_id: created_by, body });
+      return data;
+    },
+    async deletePracticalThread(id) {
+      const { error } = await db().from('practical_threads').delete().eq('id', id);
+      guard(error);
+    },
+    async listPracticalPosts(thread_id) {
+      const { data, error } = await db().from('practical_posts')
+        .select('id, author_id, body, created_at, users(full_name)')
+        .eq('thread_id', thread_id).order('created_at', { ascending: true });
+      guard(error);
+      return (data || []).map((p) => ({ ...p, author: (p.users || {}).full_name || '' }));
+    },
+    async createPracticalPost({ thread_id, author_id, body }) {
+      const { data, error } = await db().from('practical_posts')
+        .insert({ thread_id, author_id: author_id || null, body: body || '' }).select().single();
+      guard(error);
+      return data;
+    },
+
+    // ---- Verlofaanvragen ----
+    async listLeaveRequests(user_id) {
+      // 'users' expliciet via de user_id-fk benaderen: leave_requests heeft twee
+      // fk's naar users (user_id + reviewed_by), anders faalt de embed als ambigu.
+      let q = db().from('leave_requests').select('*, users!leave_requests_user_id_fkey(full_name)').order('created_at', { ascending: false });
+      if (user_id) q = q.eq('user_id', user_id);
+      const { data, error } = await q;
+      guard(error);
+      return (data || []).map((r) => ({ ...r, full_name: (r.users || {}).full_name || '' }));
+    },
+    async createLeaveRequest({ user_id, start_date, end_date, days, reason }) {
+      const { data, error } = await db().from('leave_requests')
+        .insert({ user_id, start_date, end_date, days: days || null, reason: reason || null })
+        .select().single();
+      guard(error);
+      return data;
+    },
+    async reviewLeaveRequest(id, { status, reviewed_by, review_note }) {
+      const { data, error } = await db().from('leave_requests')
+        .update({ status, reviewed_by: reviewed_by || null, review_note: review_note || null, reviewed_at: new Date().toISOString() })
+        .eq('id', id).select().single();
+      guard(error);
+      return data;
+    },
+    async deleteLeaveRequest(id) {
+      const { error } = await db().from('leave_requests').delete().eq('id', id);
+      guard(error);
+    },
   };
 
   // ---- Session (localStorage) ----
