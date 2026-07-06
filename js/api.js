@@ -178,6 +178,42 @@
       return data;
     },
 
+    // ==========================================================
+    // ONTWIKKELASSESSMENT (persoonlijkheid, 6/12 mnd)
+    // ==========================================================
+    async listAssessmentResponses(user_id) {
+      const { data, error } = await db()
+        .from('assessment_responses')
+        .select('id, wave, scores, report, submitted_at')
+        .eq('user_id', user_id);
+      guard(error);
+      return data || [];
+    },
+
+    async getAssessmentResponse(user_id, wave) {
+      const { data, error } = await db()
+        .from('assessment_responses')
+        .select('*')
+        .eq('user_id', user_id)
+        .eq('wave', wave)
+        .maybeSingle();
+      guard(error);
+      return data;
+    },
+
+    async submitAssessmentResponse({ user_id, wave, answers, scores, report }) {
+      const { data, error } = await db()
+        .from('assessment_responses')
+        .upsert(
+          { user_id, wave, answers, scores, report, submitted_at: new Date().toISOString() },
+          { onConflict: 'user_id,wave' }
+        )
+        .select()
+        .single();
+      guard(error);
+      return data;
+    },
+
     // ---- Lab: piloten ophalen (voor indeling) ----
     async listPilots() {
       const { data, error } = await db()
@@ -185,6 +221,36 @@
         .select('id, full_name, role')
         .eq('role', 'pilot')
         .order('full_name', { ascending: true });
+      guard(error);
+      return data;
+    },
+
+    // Zelfde als listPilots(), + program_start_date (voor het Ontwikkelassessment).
+    // Losgehouden van listPilots() zodat Lab/Oefeningen niet breken als
+    // db/assessment.sql nog niet is uitgevoerd (die kolom bestaat dan niet).
+    async listPilotsForAssessment() {
+      const { data, error } = await db()
+        .from('users')
+        .select('id, full_name, role, program_start_date')
+        .eq('role', 'pilot')
+        .order('full_name', { ascending: true });
+      guard(error);
+      return data;
+    },
+
+    async getUserById(id) {
+      const { data, error } = await db().from('users').select('*').eq('id', id).maybeSingle();
+      guard(error);
+      return data;
+    },
+
+    async setProgramStartDate(user_id, program_start_date) {
+      const { data, error } = await db()
+        .from('users')
+        .update({ program_start_date: program_start_date || null, updated_at: new Date().toISOString() })
+        .eq('id', user_id)
+        .select()
+        .single();
       guard(error);
       return data;
     },

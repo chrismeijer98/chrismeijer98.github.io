@@ -589,12 +589,14 @@
   // ==========================================================
   function renderOntwikkeling() {
     const parts = hashParts(); // ['ontwikkeling', sub, ...]
-    const sub = ['feedback', 'coaching'].includes(parts[1]) ? parts[1] : 'pcp';
+    const sub = ['feedback', 'coaching', 'assessment'].includes(parts[1]) ? parts[1] : 'pcp';
 
     // Volledig-schermsubviews
     if (sub === 'feedback' && parts[2] === 'new') return renderNewSession();
     if (sub === 'feedback' && parts[2] === 'manage' && parts[3]) return renderManageSession(parts[3]);
     if (sub === 'coaching' && parts[2] === 'r' && parts[3]) return renderCoachingRelation(parts[3]);
+    if (sub === 'assessment' && parts[2] === 'vullen' && parts[3]) return renderAssessmentFill(parts[3]);
+    if (sub === 'assessment' && parts[2] === 'rapport' && parts[3]) return renderAssessmentReportPage(parts[3]);
 
     qs('#main').innerHTML = `<div class="fade-up">
       <div class="eyebrow">Ontwikkeling</div>
@@ -602,6 +604,7 @@
         <button class="tab ${sub === 'pcp' ? 'active' : ''}" data-sub="pcp">PCP — Competenties</button>
         <button class="tab ${sub === 'feedback' ? 'active' : ''}" data-sub="feedback">360° Feedback</button>
         <button class="tab ${sub === 'coaching' ? 'active' : ''}" data-sub="coaching">Coaching</button>
+        <button class="tab ${sub === 'assessment' ? 'active' : ''}" data-sub="assessment">Ontwikkelassessment</button>
       </div>
       <div id="ontw-body"></div>
     </div>`;
@@ -610,6 +613,7 @@
 
     if (sub === 'feedback') renderFeedbackHub();
     else if (sub === 'coaching') renderCoachingIndex();
+    else if (sub === 'assessment') renderAssessmentIndex();
     else renderPCP(parts[2]);
   }
 
@@ -1404,6 +1408,353 @@
         });
       }
     }
+  }
+
+  // ==========================================================
+  // ONTWIKKELASSESSMENT — 250-vragen persoonlijkheidsinstrument
+  // Los onderdeel binnen Ontwikkeling. Meetmomenten 6 en 12 maanden
+  // na de programma-startdatum (die de coach per piloot instelt).
+  // hash: #ontwikkeling/assessment
+  //       #ontwikkeling/assessment/vullen/<wave>   (piloot vult in)
+  //       #ontwikkeling/assessment/rapport/<wave>  (piloot: eigen rapport)
+  // ==========================================================
+  function assessmentWave(id) { return (window.ASSESSMENT_WAVES || []).find((w) => w.id === id) || null; }
+
+  function assessmentUnlockDate(startDate, months) {
+    if (!startDate) return null;
+    const d = new Date(startDate + 'T00:00:00');
+    d.setMonth(d.getMonth() + months);
+    return d;
+  }
+
+  // 'locked' | 'open' | 'done'
+  function assessmentWaveState(startDate, wave, response) {
+    if (response) return 'done';
+    const unlock = assessmentUnlockDate(startDate, wave.months);
+    if (!unlock) return 'locked';
+    return Date.now() >= unlock.getTime() ? 'open' : 'locked';
+  }
+
+  function assessmentDraftKey(user_id, wave) { return `hop_assess_draft_${user_id}_${wave}`; }
+
+  function assessmentWaveCard(wave, state, unlockDate) {
+    if (state === 'locked') {
+      return `<div class="lab-card locked">
+        <div class="lab-lock">${LAB_LOCK}</div>
+        <div class="sect-t">${escapeHtml(wave.label)}</div>
+        <div class="sect-d">${unlockDate ? `Wordt ontgrendeld op ${formatDate(unlockDate.toISOString())}` : 'Nog geen startdatum bekend — vraag je coach deze in te stellen.'}</div>
+      </div>`;
+    }
+    if (state === 'done') {
+      return `<button class="lab-card clickable" data-report="${wave.id}">
+        <div class="lab-ico" style="background:rgba(21,128,61,.14);color:#15803D">${ICONS.check}</div>
+        <div class="sect-t">${escapeHtml(wave.label)}</div>
+        <div class="sect-d">Ingevuld. Bekijk je rapport.</div>
+        <div class="lab-foot" style="color:#15803D">Bekijk rapport ${ICONS.arrowRight}</div>
+      </button>`;
+    }
+    return `<button class="lab-card clickable" data-fill="${wave.id}">
+      <div class="lab-ico" style="background:rgba(229,107,62,.14);color:var(--coral-dark)">${ICONS.sparkles}</div>
+      <div class="sect-t">${escapeHtml(wave.label)}</div>
+      <div class="sect-d">Ontgrendeld — vul de vragenlijst in (250 stellingen).</div>
+      <div class="lab-foot" style="color:var(--coral-dark)">Start vragenlijst ${ICONS.arrowRight}</div>
+    </button>`;
+  }
+
+  function assessmentLevelColor(level) {
+    return level === 'hoog' ? '#15803D' : level === 'gemiddeld' ? '#D97706' : '#B91C1C';
+  }
+
+  // Gedeeld tussen piloot-rapportpagina en coach-inline-weergave.
+  function renderAssessmentReportBody(container, scores, report) {
+    const competencies = Object.values((report || {}).competencies || {});
+    const balances = Object.values((report || {}).balances || {});
+
+    const compRows = competencies.map((c) => {
+      const pct = Math.max(0, Math.min(100, ((c.score - 1) / 8) * 100)); // schaal 1-9
+      const color = assessmentLevelColor(c.level);
+      return `<div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;gap:10px">
+          <span style="font-weight:600;color:var(--navy-deep)">${escapeHtml(c.label)}</span>
+          <span class="pill" style="background:${color}15;color:${color}">${escapeHtml(c.level)} · ${c.score}</span>
+        </div>
+        <div style="height:8px;background:var(--sand);border-radius:99px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${color}"></div>
+        </div>
+      </div>`;
+    }).join('') || `<div style="font-size:13px;color:var(--muted)">Geen competentiescores beschikbaar.</div>`;
+
+    const balanceRows = balances.map((b) => `
+      <div class="lab-assign-row">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;color:var(--navy-deep)">${escapeHtml(b.label)}</div>
+          <div style="font-size:12px;color:var(--muted)">Verschil: ${b.difference}</div>
+        </div>
+        <span class="pill pill-coral">${escapeHtml(b.outcome)}</span>
+      </div>`).join('') || `<div style="font-size:13px;color:var(--muted)">Geen balansen beschikbaar.</div>`;
+
+    const scaleRows = Object.entries(scores || {}).map(([key, val]) => {
+      const label = (window.ASSESSMENT_SCALES[key] || {}).label || key;
+      return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--sand);font-size:13px">
+        <span style="color:#374151">${escapeHtml(label)}</span><span style="font-weight:600;color:var(--navy-deep)">${val}</span>
+      </div>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="lab-section-label">Competenties</div>
+      ${compRows}
+      <div class="lab-section-label" style="margin-top:24px">Balansen / spanningsvelden</div>
+      ${balanceRows}
+      <div class="lab-section-label" style="margin-top:24px">Alle schaalscores (1-9)</div>
+      ${scaleRows}`;
+  }
+
+  // ---------- Index: piloot ziet eigen 2 meetmomenten; coach kiest kandidaat ----------
+  async function renderAssessmentIndex() {
+    const target = qs('#ontw-body');
+    if (session.role === 'coach') return renderAssessmentCoach(target);
+
+    target.innerHTML = `<div class="fade-up">
+      <h1 class="page-title" style="font-size:30px;margin-top:6px">Ontwikkelassessment.</h1>
+      <p class="page-lead">Een persoonlijkheidsinstrument dat je invult op 6 en 12 maanden in het programma, zodat jij en je coach je ontwikkeling kunnen volgen.</p>
+      <div id="assess-body"><div class="spinner" style="margin:60px auto"></div></div>
+    </div>`;
+
+    let user = null, responses = [];
+    try {
+      [user, responses] = await Promise.all([
+        HopApi.getUserById(session.user_id),
+        HopApi.listAssessmentResponses(session.user_id),
+      ]);
+    } catch (e) { console.warn(e); }
+    const startDate = (user || {}).program_start_date || null;
+    const byWave = {}; (responses || []).forEach((r) => { byWave[r.wave] = r; });
+
+    qs('#assess-body').innerHTML = `<div class="sect-grid">${(window.ASSESSMENT_WAVES || []).map((w) => {
+      const state = assessmentWaveState(startDate, w, byWave[w.id]);
+      const unlock = assessmentUnlockDate(startDate, w.months);
+      return assessmentWaveCard(w, state, unlock);
+    }).join('')}</div>`;
+    qsa('#assess-body [data-fill]').forEach((b) => b.onclick = () => go('ontwikkeling', 'assessment/vullen/' + b.dataset.fill));
+    qsa('#assess-body [data-report]').forEach((b) => b.onclick = () => go('ontwikkeling', 'assessment/rapport/' + b.dataset.report));
+  }
+
+  // ---------- COACH: startdatum instellen per piloot + rapporten inzien ----------
+  async function renderAssessmentCoach(target) {
+    target.innerHTML = `<div class="fade-up">
+      <h1 class="page-title" style="font-size:30px;margin-top:6px">Ontwikkelassessment.</h1>
+      <p class="page-lead">Stel de programma-startdatum per piloot in en bekijk de rapporten zodra ze zijn ingevuld.</p>
+      <div class="field" style="max-width:320px"><label class="field-label">Piloot</label><select id="assess-cand" class="input"></select></div>
+      <div id="assess-coach-body"></div>
+    </div>`;
+
+    let pilots = [];
+    try { pilots = await HopApi.listPilotsForAssessment(); } catch (e) { console.warn(e); }
+    const sel = qs('#assess-cand');
+    sel.innerHTML = `<option value="">— kies piloot —</option>` + pilots.map((u) => `<option value="${u.id}">${escapeHtml(u.full_name)}</option>`).join('');
+    sel.onchange = () => loadCand(pilots.find((p) => p.id === sel.value) || null);
+
+    async function loadCand(pilot) {
+      const body = qs('#assess-coach-body');
+      if (!pilot) { body.innerHTML = ''; return; }
+      body.innerHTML = `<div class="spinner" style="margin:40px auto"></div>`;
+      let responses = [];
+      try { responses = await HopApi.listAssessmentResponses(pilot.id); } catch (e) { console.warn(e); }
+      const byWave = {}; responses.forEach((r) => { byWave[r.wave] = r; });
+
+      body.innerHTML = `
+        <div class="card card-lg" style="margin:20px 0">
+          <div class="lab-section-label">Programma-startdatum</div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <input type="date" id="assess-start" class="input" style="max-width:200px" value="${pilot.program_start_date || ''}">
+            <button class="btn btn-primary btn-sm" id="assess-start-save">Opslaan</button>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:8px">Bepaalt wanneer de 6- en 12-maanden vragenlijst voor deze piloot ontgrendelt.</div>
+        </div>
+        <div id="assess-waves"></div>`;
+
+      qs('#assess-start-save').onclick = async () => {
+        const val = qs('#assess-start').value;
+        try {
+          await HopApi.setProgramStartDate(pilot.id, val || null);
+          pilot.program_start_date = val || null;
+          toast('Startdatum opgeslagen', 'success');
+          renderWaves();
+        } catch (e) { console.error(e); toast('Kon niet opslaan', 'error'); }
+      };
+
+      renderWaves();
+
+      function renderWaves() {
+        const wrap = qs('#assess-waves');
+        wrap.innerHTML = (window.ASSESSMENT_WAVES || []).map((w) => {
+          const r = byWave[w.id];
+          const state = assessmentWaveState(pilot.program_start_date, w, r);
+          const unlock = assessmentUnlockDate(pilot.program_start_date, w.months);
+          const statusLabel = state === 'done'
+            ? `Ingevuld${r.submitted_at ? ' · ' + formatDate(r.submitted_at) : ''}`
+            : state === 'open' ? 'Ontgrendeld — nog niet ingevuld'
+            : (unlock ? `Vergrendeld tot ${formatDate(unlock.toISOString())}` : 'Vergrendeld — geen startdatum ingesteld');
+          return `<div class="lab-assign-row">
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:600;color:var(--navy-deep)">${escapeHtml(w.label)}</div>
+                <div style="font-size:12px;color:var(--muted)">${statusLabel}</div>
+              </div>
+              ${state === 'done' ? `<button class="btn btn-primary btn-sm" data-view="${w.id}">Bekijk rapport</button>` : ''}
+            </div>
+            <div id="assess-report-${w.id}"></div>`;
+        }).join('');
+        qsa('#assess-waves [data-view]').forEach((b) => b.onclick = () => {
+          const box = qs('#assess-report-' + b.dataset.view);
+          if (box.dataset.open) { box.innerHTML = ''; box.dataset.open = ''; return; }
+          box.dataset.open = '1';
+          box.innerHTML = `<div class="card card-lg" style="margin:12px 0 20px"></div>`;
+          const r = byWave[b.dataset.view];
+          renderAssessmentReportBody(box.firstElementChild, r.scores, r.report);
+        });
+      }
+    }
+  }
+
+  // ---------- PILOOT: vragenlijst invullen (gepagineerd, 10 per pagina) ----------
+  async function renderAssessmentFill(waveId) {
+    const main = qs('#main');
+    const wave = assessmentWave(waveId);
+    if (!wave || session.role !== 'pilot') {
+      main.innerHTML = `<div class="fade-up"><a href="#ontwikkeling/assessment" class="back-link">${ICONS.chevLeft} Terug</a><div class="card" style="color:var(--danger)">Onbekend meetmoment.</div></div>`;
+      return;
+    }
+    main.innerHTML = `<div class="fade-up"><div class="spinner" style="margin:80px auto"></div></div>`;
+
+    let user = null, existing = null;
+    try {
+      [user, existing] = await Promise.all([
+        HopApi.getUserById(session.user_id),
+        HopApi.getAssessmentResponse(session.user_id, waveId),
+      ]);
+    } catch (e) { console.warn(e); }
+
+    const state = assessmentWaveState((user || {}).program_start_date, wave, existing);
+    if (state !== 'open') {
+      main.innerHTML = `<div class="fade-up"><a href="#ontwikkeling/assessment" class="back-link">${ICONS.chevLeft} Terug</a>
+        <div class="card" style="color:var(--danger)">Deze vragenlijst is ${state === 'done' ? 'al ingevuld' : 'nog vergrendeld'}.</div></div>`;
+      return;
+    }
+
+    const draftKey = assessmentDraftKey(session.user_id, waveId);
+    let answers = {};
+    try { answers = JSON.parse(localStorage.getItem(draftKey)) || {}; } catch (e) { answers = {}; }
+
+    const PER_PAGE = 10;
+    const questions = window.ASSESSMENT_QUESTIONS;
+    const totalPages = Math.ceil(questions.length / PER_PAGE);
+    let page = 0;
+
+    renderPage();
+
+    function renderPage() {
+      const chunk = questions.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
+      const isLast = page === totalPages - 1;
+      const progress = (page / totalPages) * 100;
+
+      main.innerHTML = `<div class="fade-up">
+        <div class="eyebrow">Ontwikkelassessment · ${escapeHtml(wave.label)}</div>
+        <div class="progress"><div class="progress-fill" style="width:${progress}%"></div></div>
+        <div style="font-size:11px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;font-weight:600;margin-bottom:6px">
+          Vragen ${page * PER_PAGE + 1}–${page * PER_PAGE + chunk.length} van ${questions.length}
+        </div>
+        <h2 class="font-display" style="font-size:24px;font-weight:600;color:var(--navy-deep);margin-bottom:20px;letter-spacing:-.02em">${escapeHtml(window.ASSESSMENT_INSTRUCTIONS)}</h2>
+
+        <div id="assess-stmts"></div>
+
+        <div style="display:flex;gap:10px;margin-top:20px">
+          <button class="btn" id="assess-back" ${page === 0 ? 'disabled' : ''}>${ICONS.chevLeft} Terug</button>
+          <div style="margin-left:auto"></div>
+          <button class="btn btn-${isLast ? 'coral' : 'primary'}" id="assess-next">
+            ${isLast ? `${ICONS.send} Vragenlijst verzenden` : `Volgende ${ICONS.chevRight}`}
+          </button>
+        </div>
+      </div>`;
+
+      const stmtsBox = qs('#assess-stmts');
+      chunk.forEach((q) => {
+        const row = h('div', { class: 'card', style: { marginBottom: '10px' } });
+        row.innerHTML = `<div style="font-size:14px;color:#1F2937;line-height:1.55;margin-bottom:12px">${escapeHtml(q.text)}</div><div class="scale"></div>`;
+        const scaleEl = row.querySelector('.scale');
+        window.ASSESSMENT_SCALE_LABELS.forEach((lbl, i) => {
+          const v = i + 1;
+          const btn = h('button', { type: 'button', class: `scale-opt ${answers[q.number] === v ? 'active' : ''}`, style: { flex: '1' } });
+          btn.innerHTML = `<span class="n">${v}</span><span>${lbl}</span>`;
+          btn.addEventListener('click', () => {
+            answers[q.number] = v;
+            try { localStorage.setItem(draftKey, JSON.stringify(answers)); } catch (e) { /* noop */ }
+            qsa('.scale-opt', scaleEl).forEach((b, bi) => b.classList.toggle('active', bi === i));
+            checkNext();
+          });
+          scaleEl.appendChild(btn);
+        });
+        stmtsBox.appendChild(row);
+      });
+
+      qs('#assess-back').onclick = () => { if (page > 0) { page--; renderPage(); window.scrollTo(0, 0); } };
+      qs('#assess-next').onclick = async () => {
+        if (!canContinue()) { toast('Beantwoord eerst alle stellingen', 'error'); return; }
+        if (!isLast) { page++; renderPage(); window.scrollTo(0, 0); return; }
+        await submit();
+      };
+
+      function canContinue() { return chunk.every((q) => !!answers[q.number]); }
+      function checkNext() { qs('#assess-next').disabled = !canContinue(); }
+      checkNext();
+    }
+
+    async function submit() {
+      const btn = qs('#assess-next');
+      btn.disabled = true; btn.innerHTML = 'Verzenden…';
+      // Op vraagnummer indexeren (niet op weergavevolgorde) -- de vragen
+      // staan door elkaar gehusseld getoond, maar scoring.js verwacht
+      // ordered[itemnummer - 1] voor elke schaal.
+      const ordered = [];
+      questions.forEach((q) => { ordered[q.number - 1] = answers[q.number]; });
+      if (!window.HopAssessment.validateAnswers(ordered)) {
+        toast('Niet alle vragen zijn beantwoord', 'error');
+        btn.disabled = false; btn.innerHTML = `${ICONS.send} Vragenlijst verzenden`;
+        return;
+      }
+      try {
+        const scores = window.HopAssessment.calculateScores(ordered);
+        const report = window.HopAssessment.generateReport(scores);
+        await HopApi.submitAssessmentResponse({ user_id: session.user_id, wave: waveId, answers: ordered, scores, report });
+        try { localStorage.removeItem(draftKey); } catch (e) { /* noop */ }
+        toast('Vragenlijst verzonden', 'success');
+        go('ontwikkeling', 'assessment/rapport/' + waveId);
+      } catch (e) {
+        console.error(e);
+        toast('Kon niet opslaan: ' + e.message, 'error', 3500);
+        btn.disabled = false; btn.innerHTML = `${ICONS.send} Vragenlijst verzenden`;
+      }
+    }
+  }
+
+  // ---------- PILOOT: eigen rapport (volledig scherm) ----------
+  async function renderAssessmentReportPage(waveId) {
+    const main = qs('#main');
+    const wave = assessmentWave(waveId);
+    main.innerHTML = `<div class="fade-up"><div class="spinner" style="margin:80px auto"></div></div>`;
+    let r = null;
+    try { r = await HopApi.getAssessmentResponse(session.user_id, waveId); } catch (e) { console.warn(e); }
+    if (!wave || !r) {
+      main.innerHTML = `<div class="fade-up"><a href="#ontwikkeling/assessment" class="back-link">${ICONS.chevLeft} Terug</a><div class="card" style="color:var(--danger)">Nog geen rapport beschikbaar.</div></div>`;
+      return;
+    }
+    main.innerHTML = `<div class="fade-up">
+      <a href="#ontwikkeling/assessment" class="back-link">${ICONS.chevLeft} Terug naar Ontwikkeling</a>
+      <div class="eyebrow">Ontwikkelassessment</div>
+      <h1 class="page-title" style="font-size:36px">${escapeHtml(wave.label)}.</h1>
+      <p class="page-lead">Ingevuld op ${formatDate(r.submitted_at)}.</p>
+      <div class="card card-lg" id="assess-report-page"></div>
+    </div>`;
+    renderAssessmentReportBody(qs('#assess-report-page'), r.scores, r.report);
   }
 
   // ==========================================================
