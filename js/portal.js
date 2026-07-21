@@ -897,7 +897,7 @@
       <div class="card card-lg">
         <div class="field">
           <label class="field-label">Naam</label>
-          <input id="n-name" class="input" placeholder="bv. StormTromp" value="${escapeHtml(session.full_name.replace(/\s/g, ''))}">
+          <input id="n-name" class="input" placeholder="bv. Naam" value="${escapeHtml(session.full_name.replace(/\s/g, ''))}">
         </div>
         <div class="field">
           <label class="field-label">Rol / ambitie</label>
