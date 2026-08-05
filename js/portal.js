@@ -4124,6 +4124,652 @@
     'noodcommunicatie-formuleren': genEmergencySteps,
   };
 
+  // ---------- Spel 7: 3D vlucht-coördinatie arcade (Three.js) ----------
+  function play3DFlightArcade(el, cfg, finish) {
+    el.innerHTML = `
+      <style>
+        .fl3d-wrap{position:relative;width:100%;height:560px;background:#000;overflow:hidden;font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;outline:none;border-radius:14px}
+        .fl3d-mount{position:absolute;inset:0;transition:transform .05s linear}
+        .fl3d-hudCanvas{position:absolute;inset:0;pointer-events:none}
+        .fl3d-hud{position:absolute;color:#e6ecec}
+        .fl3d-panel{background:rgba(8,10,10,.62);border:1px solid rgba(160,180,180,.22);border-radius:4px;padding:7px 13px}
+        .fl3d-label{font-size:9.5px;letter-spacing:1.5px;color:#8a9a9a}
+        .fl3d-value{font-size:19px;font-weight:600}
+        .fl3d-topLeft{top:14px;left:14px}
+        .fl3d-topRight{top:14px;right:14px;text-align:right}
+        .fl3d-stats{bottom:12px;left:14px;right:14px;font-size:10.5px;color:#7a8a8a;display:flex;gap:16px;flex-wrap:wrap;z-index:5}
+        .fl3d-stats b{color:#bcd0d0}
+        .fl3d-hearts{display:flex;gap:6px;margin-top:4px}
+        .fl3d-comboWrap{position:absolute;top:66px;left:50%;transform:translateX(-50%);text-align:center}
+        .fl3d-combo{font-size:22px;font-weight:700;color:#ffcc4d;text-shadow:0 0 8px rgba(255,204,77,.5);opacity:0;transition:opacity .15s,transform .15s;transform:scale(.85)}
+        .fl3d-combo.fl3d-show{opacity:1;transform:scale(1)}
+        .fl3d-levelBanner{position:absolute;top:36%;left:50%;transform:translate(-50%,-50%) scale(.7);font-size:38px;font-weight:700;letter-spacing:3px;color:#a8d8ff;text-shadow:0 0 14px rgba(168,216,255,.6);opacity:0;pointer-events:none;transition:opacity .3s,transform .3s}
+        .fl3d-levelBanner.fl3d-show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+        .fl3d-flash{position:absolute;inset:0;background:rgba(220,60,50,0);pointer-events:none;transition:background .08s}
+        .fl3d-bezel-vignette{position:absolute;inset:0;pointer-events:none;z-index:4;box-shadow:inset 0 0 90px 30px rgba(0,0,0,.65);border-radius:6px}
+        .fl3d-glareshield{position:absolute;left:0;right:0;bottom:0;height:9%;min-height:34px;background:linear-gradient(180deg,#12161a,#05070a);border-top:2px solid #262e33;z-index:5;pointer-events:none}
+        .fl3d-glareshield .fl3d-rivet{position:absolute;top:6px;width:5px;height:5px;border-radius:50%;background:#3a4550}
+        .fl3d-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:radial-gradient(ellipse at center,rgba(8,14,16,.94),rgba(2,4,6,.99));text-align:center;color:#e6ecec;overflow-y:auto;padding:20px 0;z-index:10}
+        .fl3d-overlay.fl3d-show{display:flex}
+        .fl3d-overlay h1{font-size:26px;letter-spacing:3px;color:#a8d8ff;text-shadow:0 0 14px rgba(168,216,255,.5);margin:0}
+        .fl3d-overlay .fl3d-sub{font-size:13px;color:#8fa5a5;max-width:460px;line-height:1.6}
+        .fl3d-btn{font-family:inherit;font-size:15px;letter-spacing:1px;color:#04120a;font-weight:700;background:linear-gradient(180deg,#6dd88a,#2a9d5c);border:none;padding:13px 30px;border-radius:6px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.4)}
+        .fl3d-btn:hover{filter:brightness(1.08)}
+        .fl3d-btn-ghost{font-family:inherit;font-size:13px;color:#8fa5a5;background:transparent;border:1px solid rgba(160,180,180,.3);padding:11px 22px;border-radius:6px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center}
+        .fl3d-btn-ghost:hover{color:#e6ecec;border-color:rgba(160,180,180,.6)}
+        .fl3d-score-final{font-size:44px;font-weight:700;color:#6dd88a}
+        .fl3d-score-table{display:grid;grid-template-columns:auto auto;gap:4px 20px;font-size:13px;color:#9fb0b0;text-align:left}
+        .fl3d-score-table b{color:#e6ecec}
+        .fl3d-highscore{font-size:12px;color:#ffcc4d;letter-spacing:1px}
+        .fl3d-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+      </style>
+      <div class="fl3d-wrap" id="fl3d-wrap" tabindex="0">
+        <div class="fl3d-mount" id="fl3d-mount"></div>
+        <canvas class="fl3d-hudCanvas" id="fl3d-hudCanvas"></canvas>
+        <div class="fl3d-bezel-vignette"></div>
+        <div class="fl3d-glareshield" id="fl3d-glareshield"></div>
+        <div class="fl3d-flash" id="fl3d-flash"></div>
+
+        <div class="fl3d-hud fl3d-panel fl3d-topLeft">
+          <div class="fl3d-label">SCORE</div>
+          <div class="fl3d-value" id="fl3d-scoreOut" style="color:#5dffb0">0</div>
+          <div class="fl3d-label" style="margin-top:6px">LEVENS</div>
+          <div class="fl3d-hearts" id="fl3d-hearts"></div>
+        </div>
+        <div class="fl3d-hud fl3d-panel fl3d-topRight">
+          <div class="fl3d-label">LEVEL</div>
+          <div class="fl3d-value" id="fl3d-levelOut" style="color:#4dd8ff">1</div>
+          <div class="fl3d-label" style="margin-top:6px">RING</div>
+          <div class="fl3d-value" id="fl3d-ringOut" style="font-size:15px;color:#cfe8dd">0</div>
+        </div>
+        <div class="fl3d-comboWrap"><div class="fl3d-combo" id="fl3d-combo">COMBO x1</div></div>
+        <div class="fl3d-levelBanner" id="fl3d-levelBanner">LEVEL 2</div>
+        <div id="fl3d-reactionDot" style="position:absolute;width:24px;height:24px;border-radius:50%;background:#101c14;border:1px solid #3a4a4a;top:96px;left:50%;transform:translateX(-50%)"></div>
+
+        <div class="fl3d-hud fl3d-stats" id="fl3d-stats">
+          <div>RAAK % <b id="fl3d-statHit">—</b></div>
+          <div>GEM. RICHTFOUT <b id="fl3d-statErr">—</b></div>
+          <div>MISSERS <b id="fl3d-statMiss">0</b></div>
+          <div style="margin-left:auto">HIGHSCORE <b id="fl3d-statHigh" style="color:#ffd23d">0</b></div>
+        </div>
+
+        <div class="fl3d-overlay fl3d-show" id="fl3d-startOverlay">
+          <h1>3D FLIGHT COORDINATION</h1>
+          <div class="fl3d-sub">
+            <b style="color:#e6f5ee">Hand</b> (muis): pitch (omhoog/omlaag) en roll (bank links/rechts).<br>
+            <b style="color:#e6f5ee">Voet</b> (A/D): yaw — je neus links/rechts draaien.<br>
+            <b style="color:#e6f5ee">Oog</b>: druk <b>spatie</b> zo snel mogelijk als het amberkleurige signaal bovenin oplicht.<br>
+            Stuur door elke ring — de vereiste richting verandert terwijl hij dichterbij komt. 3 levens, elke 6 ringen wordt het lastiger.
+          </div>
+          <button class="fl3d-btn" id="fl3d-startBtn">START VLUCHT</button>
+          <div class="fl3d-highscore" id="fl3d-startHighscore">HIGHSCORE: 0</div>
+        </div>
+
+        <div class="fl3d-overlay" id="fl3d-endOverlay">
+          <h1>GAME OVER</h1>
+          <div class="fl3d-score-final" id="fl3d-finalScore">0</div>
+          <div class="fl3d-score-table" id="fl3d-scoreTable"></div>
+          <canvas id="fl3d-devChart" width="480" height="150" style="margin-top:4px"></canvas>
+          <div class="fl3d-actions">
+            <button class="fl3d-btn" id="fl3d-restartBtn">NOG EEN KEER</button>
+            <a class="fl3d-btn-ghost" href="#oefenmateriaal/c/coordinatie">Terug naar categorie</a>
+          </div>
+        </div>
+      </div>`;
+
+    const wrap = qs('#fl3d-wrap', el);
+    const mount = qs('#fl3d-mount', el);
+    const hudCanvas = qs('#fl3d-hudCanvas', el);
+    const hctx = hudCanvas.getContext('2d');
+    const flashEl = qs('#fl3d-flash', el);
+    const scoreOut = qs('#fl3d-scoreOut', el);
+    const levelOut = qs('#fl3d-levelOut', el);
+    const ringOut = qs('#fl3d-ringOut', el);
+    const heartsEl = qs('#fl3d-hearts', el);
+    const comboEl = qs('#fl3d-combo', el);
+    const levelBanner = qs('#fl3d-levelBanner', el);
+    const reactionDot = qs('#fl3d-reactionDot', el);
+    const statHit = qs('#fl3d-statHit', el);
+    const statErr = qs('#fl3d-statErr', el);
+    const statMiss = qs('#fl3d-statMiss', el);
+    const statHigh = qs('#fl3d-statHigh', el);
+    const startOverlay = qs('#fl3d-startOverlay', el);
+    const startHighscore = qs('#fl3d-startHighscore', el);
+    const endOverlay = qs('#fl3d-endOverlay', el);
+    const finalScoreEl = qs('#fl3d-finalScore', el);
+    const scoreTable = qs('#fl3d-scoreTable', el);
+    const startBtn = qs('#fl3d-startBtn', el);
+    const restartBtn = qs('#fl3d-restartBtn', el);
+    const glareshield = qs('#fl3d-glareshield', el);
+
+    const W = () => wrap.clientWidth, H = () => wrap.clientHeight;
+
+    for (let i = 0; i < 14; i++) {
+      const r = document.createElement('div');
+      r.className = 'fl3d-rivet';
+      r.style.left = (2 + i * (96 / 13)) + '%';
+      glareshield.appendChild(r);
+    }
+
+    function fitHudCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      hudCanvas.width = W() * dpr; hudCanvas.height = H() * dpr;
+      hudCanvas.style.width = W() + 'px'; hudCanvas.style.height = H() + 'px';
+      hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    fitHudCanvas();
+
+    const HIGH_KEY = 'hop_flight3d_highscore';
+    let highscore = parseInt(localStorage.getItem(HIGH_KEY) || '0', 10);
+    statHigh.textContent = highscore;
+    startHighscore.textContent = 'HIGHSCORE: ' + highscore;
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x05080a, 25, 95);
+    const camera = new THREE.PerspectiveCamera(72, W() / H(), 0.1, 200);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.setSize(W(), H());
+    renderer.setClearColor(0x05080a);
+    mount.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0x4d6b58, 1.1));
+    const dl = new THREE.DirectionalLight(0xbfe8c8, 0.9);
+    dl.position.set(5, 8, 4);
+    scene.add(dl);
+
+    const starGeo = new THREE.BufferGeometry();
+    const starCount = 800;
+    const starPos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      starPos[i * 3] = (Math.random() - 0.5) * 160;
+      starPos[i * 3 + 1] = (Math.random() - 0.5) * 160;
+      starPos[i * 3 + 2] = (Math.random() - 0.5) * 160;
+    }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0x9fc9ff, size: 0.35, transparent: true, opacity: 0.7 });
+    scene.add(new THREE.Points(starGeo, starMat));
+
+    const gridMat = new THREE.LineBasicMaterial({ color: 0x1d3526 });
+    for (let g = -40; g <= -5; g += 5) {
+      const pts = [];
+      for (let a = 0; a <= 32; a++) {
+        const ang = (a / 32) * Math.PI * 2;
+        pts.push(new THREE.Vector3(Math.cos(ang) * 14, Math.sin(ang) * 14 - 6, g));
+      }
+      scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
+    }
+
+    function clamp2(v, a, b) { return Math.max(a, Math.min(b, v)); }
+    function mean(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; }
+    function std(arr) { if (arr.length < 2) return 0; const m = mean(arr); return Math.sqrt(arr.reduce((a, b) => a + (b - m) * (b - m), 0) / arr.length); }
+
+    function levelParams(lvl) {
+      return {
+        speed: 15 + lvl * 1.1,
+        spawnInt: Math.max(1.0, 2.25 - lvl * 0.11),
+        tolDeg: Math.max(6, 17 - lvl * 1.0),
+        glitchChance: Math.min(0.3, lvl * 0.025),
+      };
+    }
+
+    let gates = [];
+    let passed = 0, missed = 0, lives = 3, score = 0, streak = 0, level = 1;
+    const totalErrs = [], horizErrs = [], vertErrs = [], resultsSeq = [], tolerances = [];
+    let levelErrs = {};
+    let oscillations = 0, prevHSign = 0, elapsedPlayTime = 0;
+    let spawnTimer = 0;
+    let running = false;
+    const clock = new THREE.Clock();
+    let shakeUntil = 0;
+    let rafId = null;
+
+    function spawnGate() {
+      const ox = (Math.random() * 2 - 1) * 3.5;
+      const oy = (Math.random() * 2 - 1) * 3.0;
+      const geo = new THREE.TorusGeometry(2.6, 0.28, 12, 28);
+      const mat = new THREE.MeshStandardMaterial({ color: 0x4dd8ff, emissive: 0x0c2430, roughness: 0.5 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(ox, oy, -80);
+      scene.add(mesh);
+      gates.push({ mesh, ox, oy, resolved: false, tolDeg: levelParams(level).tolDeg, speed: levelParams(level).speed });
+    }
+
+    let yaw = 0, pitch = 0, roll = 0;
+    let mouseRelX = 0, mouseRelY = 0;
+    const keys = {};
+    function onKeyDown(e) { keys[e.key.toLowerCase()] = true; if (e.key === ' ') { e.preventDefault(); handleSpace(); } }
+    function onKeyUp(e) { keys[e.key.toLowerCase()] = false; }
+    function onMouseMove(e) {
+      const r = wrap.getBoundingClientRect();
+      mouseRelX = ((e.clientX - r.left) / r.width) * 2 - 1;
+      mouseRelY = ((e.clientY - r.top) / r.height) * 2 - 1;
+    }
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    wrap.addEventListener('mousemove', onMouseMove);
+
+    let reactionActive = false, reactionAt = 0, nextReaction = 3;
+    let reactionHits = 0, reactionMisses = 0;
+    const reactionRTs = [];
+    function handleSpace() {
+      if (!running || !reactionActive) return;
+      reactionHits++;
+      reactionRTs.push(clock.getElapsedTime() - reactionAt);
+      reactionActive = false;
+      reactionDot.style.background = '#101c14';
+      nextReaction = clock.getElapsedTime() + 2.4 + Math.random() * 2.4;
+    }
+
+    function playBeep(freq, dur, type, gain) {
+      try {
+        const actx = playBeep.ctx || (playBeep.ctx = new (window.AudioContext || window.webkitAudioContext)());
+        const osc = actx.createOscillator();
+        const g = actx.createGain();
+        osc.type = type; osc.frequency.value = freq;
+        g.gain.value = gain;
+        g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+        osc.connect(g); g.connect(actx.destination);
+        osc.start(); osc.stop(actx.currentTime + dur);
+      } catch (e) { /* noop */ }
+    }
+
+    const qYaw = new THREE.Quaternion(), qPitch = new THREE.Quaternion(), qRoll = new THREE.Quaternion();
+    const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0), AZ = new THREE.Vector3(0, 0, 1);
+    const dirVec = new THREE.Vector3(), targetVec = new THREE.Vector3(), localVec = new THREE.Vector3();
+
+    function localAngles(worldTarget) {
+      const qc = camera.quaternion;
+      const qInv = new THREE.Quaternion(-qc.x, -qc.y, -qc.z, qc.w);
+      localVec.copy(worldTarget).applyQuaternion(qInv);
+      const h = Math.atan2(localVec.x, -localVec.z);
+      const v = Math.atan2(localVec.y, -localVec.z);
+      return { h, v };
+    }
+
+    function showCombo(mult) {
+      comboEl.textContent = 'COMBO x' + mult.toFixed(1);
+      comboEl.classList.add('fl3d-show');
+      clearTimeout(showCombo._t);
+      showCombo._t = setTimeout(() => comboEl.classList.remove('fl3d-show'), 900);
+    }
+    function showLevelBanner(lvl) {
+      levelBanner.textContent = 'LEVEL ' + lvl;
+      levelBanner.classList.add('fl3d-show');
+      setTimeout(() => levelBanner.classList.remove('fl3d-show'), 1400);
+    }
+    function renderHearts() {
+      heartsEl.innerHTML = '';
+      for (let i = 0; i < 3; i++) {
+        const s = document.createElement('span');
+        s.textContent = i < lives ? '♥' : '♡';
+        s.style.color = i < lives ? '#ff4d5e' : '#3a2a2c';
+        s.style.fontSize = '16px';
+        heartsEl.appendChild(s);
+      }
+    }
+
+    function drawHUD(pitchRad, rollRad, yawRad) {
+      const w = W(), h = H();
+      hctx.clearRect(0, 0, w, h);
+      const pitchDeg = pitchRad * 180 / Math.PI;
+      const cx = w / 2, cy = h / 2;
+
+      hctx.strokeStyle = '#111'; hctx.lineWidth = 3;
+      hctx.beginPath(); hctx.moveTo(cx - 16, cy); hctx.lineTo(cx + 16, cy); hctx.moveTo(cx, cy - 16); hctx.lineTo(cx, cy + 16); hctx.stroke();
+      hctx.strokeStyle = '#6dd88a'; hctx.lineWidth = 1.6;
+      hctx.beginPath(); hctx.moveTo(cx - 16, cy); hctx.lineTo(cx - 5, cy); hctx.moveTo(cx + 5, cy); hctx.lineTo(cx + 16, cy);
+      hctx.moveTo(cx, cy - 16); hctx.lineTo(cx, cy - 5); hctx.moveTo(cx, cy + 5); hctx.lineTo(cx, cy + 16); hctx.stroke();
+
+      const adiR = 68;
+      const adiX = cx, adiY = h - 140;
+      hctx.save();
+      hctx.beginPath(); hctx.arc(adiX, adiY, adiR, 0, Math.PI * 2); hctx.clip();
+
+      hctx.translate(adiX, adiY);
+      hctx.rotate(-rollRad);
+      const pxPerDeg = adiR / 45;
+      const horizonY = pitchDeg * pxPerDeg;
+      const big = adiR * 2.4;
+
+      const skyGrad = hctx.createLinearGradient(0, horizonY - big, 0, horizonY);
+      skyGrad.addColorStop(0, '#0d2a4a'); skyGrad.addColorStop(1, '#3f7bab');
+      hctx.fillStyle = skyGrad;
+      hctx.fillRect(-big, horizonY - big, big * 2, big);
+
+      const groundGrad = hctx.createLinearGradient(0, horizonY, 0, horizonY + big);
+      groundGrad.addColorStop(0, '#5a4326'); groundGrad.addColorStop(1, '#241a10');
+      hctx.fillStyle = groundGrad;
+      hctx.fillRect(-big, horizonY, big * 2, big);
+
+      hctx.strokeStyle = '#eef3f3'; hctx.lineWidth = 2;
+      hctx.beginPath(); hctx.moveTo(-big, horizonY); hctx.lineTo(big, horizonY); hctx.stroke();
+
+      hctx.font = '9px ui-monospace, monospace';
+      hctx.textAlign = 'center';
+      for (let d = -40; d <= 40; d += 10) {
+        if (d === 0) continue;
+        const y = horizonY - d * pxPerDeg;
+        const lineW = d % 20 === 0 ? 26 : 14;
+        hctx.strokeStyle = 'rgba(238,243,243,0.85)'; hctx.lineWidth = 1.3;
+        hctx.setLineDash(d < 0 ? [4, 3] : []);
+        hctx.beginPath(); hctx.moveTo(-lineW / 2, y); hctx.lineTo(lineW / 2, y); hctx.stroke();
+        hctx.setLineDash([]);
+      }
+      hctx.restore();
+
+      hctx.strokeStyle = 'rgba(238,243,243,0.5)'; hctx.lineWidth = 1;
+      hctx.beginPath(); hctx.arc(adiX, adiY, adiR, 0, Math.PI * 2); hctx.stroke();
+      for (const a of [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60]) {
+        const rad = (a - 90) * Math.PI / 180;
+        const rr1 = adiR, rr2 = adiR - (a === 0 ? 9 : 5);
+        hctx.beginPath();
+        hctx.moveTo(adiX + Math.cos(rad) * rr1, adiY + Math.sin(rad) * rr1);
+        hctx.lineTo(adiX + Math.cos(rad) * rr2, adiY + Math.sin(rad) * rr2);
+        hctx.stroke();
+      }
+      const rollDeg = -rollRad * 180 / Math.PI;
+      const pr = (rollDeg - 90) * Math.PI / 180;
+      hctx.fillStyle = '#ffcc4d';
+      hctx.beginPath();
+      hctx.moveTo(adiX + Math.cos(pr) * (adiR + 2), adiY + Math.sin(pr) * (adiR + 2));
+      hctx.lineTo(adiX + Math.cos(pr - 0.05) * (adiR + 10), adiY + Math.sin(pr - 0.05) * (adiR + 10));
+      hctx.lineTo(adiX + Math.cos(pr + 0.05) * (adiR + 10), adiY + Math.sin(pr + 0.05) * (adiR + 10));
+      hctx.closePath(); hctx.fill();
+      hctx.strokeStyle = '#1a1e22'; hctx.lineWidth = 3;
+      hctx.beginPath(); hctx.moveTo(adiX - 20, adiY); hctx.lineTo(adiX - 6, adiY); hctx.lineTo(adiX, adiY + 5); hctx.lineTo(adiX + 6, adiY); hctx.lineTo(adiX + 20, adiY); hctx.stroke();
+      hctx.strokeStyle = '#ffcc4d'; hctx.lineWidth = 1.6;
+      hctx.beginPath(); hctx.moveTo(adiX - 20, adiY); hctx.lineTo(adiX - 6, adiY); hctx.lineTo(adiX, adiY + 5); hctx.lineTo(adiX + 6, adiY); hctx.lineTo(adiX + 20, adiY); hctx.stroke();
+
+      let headingDeg = ((-yawRad * 180 / Math.PI) % 360 + 360) % 360;
+      const tapeY = 12, tapeH = 26, tapeW = Math.min(w * 0.5, 320);
+      const tx0 = cx - tapeW / 2;
+      hctx.fillStyle = 'rgba(6,9,10,0.72)';
+      hctx.fillRect(tx0, tapeY, tapeW, tapeH);
+      hctx.save();
+      hctx.beginPath(); hctx.rect(tx0, tapeY, tapeW, tapeH); hctx.clip();
+      const pxPerDegH = tapeW / 90;
+      hctx.font = '11px ui-monospace, monospace';
+      hctx.strokeStyle = 'rgba(230,240,240,0.6)'; hctx.fillStyle = '#e6ecec';
+      const compass = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' };
+      for (let d = -50; d <= 50; d += 5) {
+        const x = cx + d * pxPerDegH;
+        if (x < tx0 - 10 || x > tx0 + tapeW + 10) continue;
+        const hd = ((Math.round(headingDeg) + d) % 360 + 360) % 360;
+        const isMajor = hd % 30 === 0;
+        hctx.lineWidth = isMajor ? 1.5 : 1;
+        hctx.beginPath(); hctx.moveTo(x, tapeY + tapeH); hctx.lineTo(x, tapeY + tapeH - (isMajor ? 10 : 5)); hctx.stroke();
+        if (isMajor) {
+          hctx.textAlign = 'center';
+          hctx.fillText(compass[hd] !== undefined ? compass[hd] : hd, x, tapeY + 12);
+        }
+      }
+      hctx.restore();
+      hctx.strokeStyle = '#ffcc4d'; hctx.lineWidth = 2;
+      hctx.beginPath(); hctx.moveTo(cx, tapeY - 2); hctx.lineTo(cx - 5, tapeY + 5); hctx.lineTo(cx + 5, tapeY + 5); hctx.closePath(); hctx.stroke();
+      hctx.fillStyle = 'rgba(6,9,10,0.9)';
+      hctx.fillRect(cx - 20, tapeY + tapeH + 2, 40, 16);
+      hctx.fillStyle = '#ffcc4d'; hctx.font = 'bold 12px ui-monospace, monospace'; hctx.textAlign = 'center';
+      hctx.fillText(String(Math.round(headingDeg)).padStart(3, '0'), cx, tapeY + tapeH + 13);
+      hctx.textAlign = 'left';
+    }
+
+    function drawDeviationChart() {
+      const canvas = qs('#fl3d-devChart', el);
+      const dpr = window.devicePixelRatio || 1;
+      const cw = canvas.clientWidth || 480, ch = 150;
+      canvas.width = cw * dpr; canvas.height = ch * dpr;
+      canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+      const dctx = canvas.getContext('2d');
+      dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      dctx.clearRect(0, 0, cw, ch);
+
+      const n = totalErrs.length;
+      if (n < 2) {
+        dctx.fillStyle = '#5c7a6d';
+        dctx.font = '12px ui-monospace, monospace';
+        dctx.fillText('nog te weinig ringen voor een grafiek', 10, ch / 2);
+        return;
+      }
+      const padL = 30, padR = 10, padT = 10, padB = 18;
+      const plotW = cw - padL - padR, plotH = ch - padT - padB;
+      const maxDeg = Math.max(20, ...totalErrs, ...tolerances);
+      const xAt = (i) => padL + (n === 1 ? 0 : (i / (n - 1)) * plotW);
+      const yAt = (v) => padT + plotH - (v / maxDeg) * plotH;
+
+      dctx.strokeStyle = 'rgba(77,216,255,0.35)';
+      dctx.setLineDash([3, 3]);
+      dctx.beginPath();
+      tolerances.forEach((tv, i) => { const x = xAt(i), y = yAt(tv); i === 0 ? dctx.moveTo(x, y) : dctx.lineTo(x, y); });
+      dctx.stroke();
+      dctx.setLineDash([]);
+
+      dctx.strokeStyle = 'rgba(207,232,221,0.35)';
+      dctx.lineWidth = 1.3;
+      dctx.beginPath();
+      totalErrs.forEach((v, i) => { const x = xAt(i), y = yAt(v); i === 0 ? dctx.moveTo(x, y) : dctx.lineTo(x, y); });
+      dctx.stroke();
+
+      totalErrs.forEach((v, i) => {
+        const x = xAt(i), y = yAt(v);
+        dctx.fillStyle = resultsSeq[i] ? '#5dffb0' : '#ff4d5e';
+        dctx.beginPath(); dctx.arc(x, y, 3.2, 0, Math.PI * 2); dctx.fill();
+      });
+
+      dctx.fillStyle = '#5c7a6d';
+      dctx.font = '10px ui-monospace, monospace';
+      dctx.textAlign = 'left';
+      dctx.fillText('0°', 2, ch - padB + 4);
+      dctx.fillText(Math.round(maxDeg) + '°', 2, padT + 8);
+      dctx.fillText('ring 1', padL, ch - 4);
+      dctx.textAlign = 'right';
+      dctx.fillText('ring ' + n, cw - padR, ch - 4);
+      dctx.textAlign = 'left';
+    }
+
+    function endRound() {
+      running = false;
+      const total = passed + missed;
+      const hitPct = total ? Math.round((passed / total) * 100) : 0;
+      const avgErr = mean(totalErrs);
+      const errStd = std(totalErrs);
+      const hBias = mean(horizErrs) * 180 / Math.PI;
+      const vBias = mean(vertErrs) * 180 / Math.PI;
+      const hLabel = Math.abs(hBias) < 1.2 ? 'geen duidelijke bias' : (hBias > 0 ? hBias.toFixed(1) + '° naar rechts' : Math.abs(hBias).toFixed(1) + '° naar links');
+      const vLabel = Math.abs(vBias) < 1.2 ? 'geen duidelijke bias' : (vBias > 0 ? vBias.toFixed(1) + '° te hoog' : Math.abs(vBias).toFixed(1) + '° te laag');
+      const oscPerMin = elapsedPlayTime > 0 ? (oscillations / (elapsedPlayTime / 60)).toFixed(1) : '0';
+
+      const levelKeys = Object.keys(levelErrs).map(Number).sort((a, b) => a - b);
+      let ceilingLevel = null;
+      for (const lvl of levelKeys) { if (levelErrs[lvl].length >= 2 && mean(levelErrs[lvl]) > 13) { ceilingLevel = lvl; break; } }
+      const ceilingLabel = ceilingLevel ? 'level ' + ceilingLevel : (levelKeys.length ? 'nog niet bereikt' : '—');
+
+      let trendLabel = 'onvoldoende data';
+      if (totalErrs.length >= 6) {
+        const half = Math.floor(totalErrs.length / 2);
+        const earlyHit = resultsSeq.slice(0, half).filter(Boolean).length / half * 100;
+        const lateHit = resultsSeq.slice(half).filter(Boolean).length / (resultsSeq.length - half) * 100;
+        const diff = Math.round(earlyHit - lateHit);
+        trendLabel = diff > 8 ? 'werd slechter (' + Math.round(earlyHit) + '% → ' + Math.round(lateHit) + '%)'
+          : diff < -8 ? 'werd beter (' + Math.round(earlyHit) + '% → ' + Math.round(lateHit) + '%)'
+          : 'stabiel (' + Math.round(earlyHit) + '% → ' + Math.round(lateHit) + '%)';
+      }
+
+      const reactTotal = reactionHits + reactionMisses;
+      const reactHitPct = reactTotal ? Math.round((reactionHits / reactTotal) * 100) : 0;
+      const avgRT = reactionRTs.length ? Math.round(mean(reactionRTs) * 1000) : 0;
+
+      if (score > highscore) { highscore = score; localStorage.setItem(HIGH_KEY, String(highscore)); }
+      statHigh.textContent = highscore;
+
+      finalScoreEl.textContent = score;
+      scoreTable.innerHTML =
+        '<span>Level bereikt</span><b>' + level + '</b>' +
+        '<span>Ringen geraakt</span><b>' + passed + ' / ' + total + ' (' + hitPct + '%)</b>' +
+        '<span>Gem. richtfout</span><b>' + avgErr.toFixed(1) + '°</b>' +
+        '<span>Spreiding (consistentie)</span><b>±' + errStd.toFixed(1) + '°</b>' +
+        '<span>Horizontale bias (hand+voet)</span><b>' + hLabel + '</b>' +
+        '<span>Verticale bias (hand)</span><b>' + vLabel + '</b>' +
+        '<span>Overcorrecties</span><b>' + oscPerMin + ' / min</b>' +
+        '<span>Moeilijkheidsplafond</span><b>' + ceilingLabel + '</b>' +
+        '<span>Trend binnen sessie</span><b>' + trendLabel + '</b>' +
+        '<span>Reactie (oog) — raak</span><b>' + reactHitPct + '% (' + reactionHits + '/' + reactTotal + ')</b>' +
+        '<span>Reactie (oog) — gem. tijd</span><b>' + (avgRT || '—') + (avgRT ? ' ms' : '') + '</b>' +
+        '<span>Missers</span><b>' + missed + '</b>' +
+        '<span>Highscore</span><b>' + highscore + '</b>';
+      endOverlay.classList.add('fl3d-show');
+      drawDeviationChart();
+
+      const platformScore = Math.round(Math.min(100, hitPct * 0.75 + Math.min(25, (level - 1) * 4)));
+      HopApi.saveExerciseScore({ candidate_id: session.user_id, category_id: 'coordinatie', type_id: '3d-vlucht-arcade', score: platformScore, scale_type: 'percentage' }).catch((e) => console.warn(e));
+    }
+
+    function start() {
+      gates.forEach((g) => { scene.remove(g.mesh); g.mesh.geometry.dispose(); g.mesh.material.dispose(); });
+      gates = []; passed = 0; missed = 0; lives = 3; score = 0; streak = 0; level = 1;
+      totalErrs.length = 0; horizErrs.length = 0; vertErrs.length = 0; resultsSeq.length = 0; tolerances.length = 0;
+      levelErrs = {}; oscillations = 0; prevHSign = 0; elapsedPlayTime = 0;
+      yaw = 0; pitch = 0; roll = 0; spawnTimer = 0;
+      reactionActive = false; reactionHits = 0; reactionMisses = 0; reactionRTs.length = 0;
+      reactionDot.style.background = '#101c14';
+      startOverlay.classList.remove('fl3d-show');
+      endOverlay.classList.remove('fl3d-show');
+      renderHearts();
+      scoreOut.textContent = 0; levelOut.textContent = 1; ringOut.textContent = 0;
+      statHit.textContent = '—'; statErr.textContent = '—'; statMiss.textContent = 0;
+      wrap.focus();
+      clock.start();
+      nextReaction = 3;
+      running = true;
+      rafId = requestAnimationFrame(animate);
+    }
+
+    function animate() {
+      if (!running) { renderer.render(scene, camera); drawHUD(pitch, roll, yaw); return; }
+      rafId = requestAnimationFrame(animate);
+      const dt = Math.min(0.05, clock.getDelta());
+      const t = clock.getElapsedTime();
+      elapsedPlayTime = t;
+
+      const p = levelParams(level);
+      let yawDir = 0;
+      if (keys['a'] || keys['arrowleft']) { yaw += 1.8 * dt; yawDir = 1; }
+      if (keys['d'] || keys['arrowright']) { yaw -= 1.8 * dt; yawDir = -1; }
+      const pitchTarget = -mouseRelY * 0.55;
+      const rollTarget = yawDir * 0.35;
+      pitch += (pitchTarget - pitch) * Math.min(1, dt * 6);
+      roll += (rollTarget - roll) * Math.min(1, dt * 4);
+      if (Math.random() < p.glitchChance * dt) yaw += (Math.random() - 0.5) * 0.25;
+
+      qYaw.setFromAxisAngle(AY, yaw);
+      qPitch.setFromAxisAngle(AX, pitch);
+      qRoll.setFromAxisAngle(AZ, roll);
+      camera.quaternion.copy(qYaw).multiply(qPitch);
+      camera.updateMatrixWorld(true);
+      camera.getWorldDirection(dirVec);
+
+      if (t >= spawnTimer) { spawnGate(); spawnTimer = t + p.spawnInt; }
+
+      const nearest = gates.filter((g) => !g.resolved).sort((a, b) => b.mesh.position.z - a.mesh.position.z)[0];
+      if (nearest) {
+        targetVec.set(nearest.ox, nearest.oy, nearest.mesh.position.z).normalize();
+        const ang = localAngles(targetVec);
+        const hDeg = ang.h * 180 / Math.PI;
+        if (Math.abs(hDeg) > 1.5) {
+          const s = Math.sign(hDeg);
+          if (prevHSign !== 0 && s !== prevHSign) oscillations++;
+          prevHSign = s;
+        }
+      }
+
+      gates.forEach((g) => {
+        if (!running) return;
+        g.mesh.position.z += g.speed * dt;
+        if (!g.resolved && g.mesh.position.z > -7) {
+          g.resolved = true;
+          targetVec.set(g.ox, g.oy, g.mesh.position.z).normalize();
+          const ang = localAngles(targetVec);
+          const errDeg = Math.hypot(ang.h, ang.v) * 180 / Math.PI;
+          totalErrs.push(errDeg); horizErrs.push(ang.h); vertErrs.push(ang.v); tolerances.push(g.tolDeg);
+          (levelErrs[level] = levelErrs[level] || []).push(errDeg);
+
+          if (errDeg <= g.tolDeg) {
+            resultsSeq.push(true);
+            passed++; streak++;
+            const precision = 1 - clamp2(errDeg / g.tolDeg, 0, 1);
+            const mult = Math.min(4, 1 + Math.floor(streak / 3) * 0.5);
+            const pts = Math.round(100 * mult + precision * 50);
+            score += pts;
+            if (streak >= 3) showCombo(mult);
+            playBeep(660 + precision * 220, 0.12, 'sine', 0.05);
+            g.mesh.material.color.set(0x639922); g.mesh.material.emissive.set(0x1a3a08);
+          } else {
+            resultsSeq.push(false);
+            missed++; lives--; streak = 0;
+            flashEl.style.background = 'rgba(255,60,70,0.35)';
+            setTimeout(() => { flashEl.style.background = 'rgba(255,60,70,0)'; }, 90);
+            shakeUntil = t + 0.3;
+            playBeep(140, 0.25, 'sawtooth', 0.06);
+            renderHearts();
+            g.mesh.material.color.set(0xd85a30); g.mesh.material.emissive.set(0x3a1206);
+          }
+
+          const total = passed + missed;
+          const newLevel = Math.floor(total / 6) + 1;
+          if (newLevel !== level) { level = newLevel; showLevelBanner(level); }
+          scoreOut.textContent = score; levelOut.textContent = level; ringOut.textContent = total;
+          statHit.textContent = total ? Math.round((passed / total) * 100) + '%' : '—';
+          statErr.textContent = totalErrs.length ? (mean(totalErrs)).toFixed(1) + '°' : '—';
+          statMiss.textContent = missed;
+
+          if (lives <= 0) { endRound(); return; }
+        }
+      });
+      gates = gates.filter((g) => {
+        if (g.mesh.position.z > 6) { scene.remove(g.mesh); g.mesh.geometry.dispose(); g.mesh.material.dispose(); return false; }
+        return true;
+      });
+
+      if (!reactionActive && t >= nextReaction && passed + missed >= 1) { reactionActive = true; reactionAt = t; reactionDot.style.background = '#ffb020'; }
+      if (reactionActive && t - reactionAt > 2.0) { reactionActive = false; reactionMisses++; reactionDot.style.background = '#101c14'; nextReaction = t + 2.4 + Math.random() * 2.4; }
+
+      if (t < shakeUntil) mount.style.transform = 'translate(' + ((Math.random() - 0.5) * 8) + 'px,' + ((Math.random() - 0.5) * 8) + 'px)';
+      else mount.style.transform = 'translate(0,0)';
+
+      drawHUD(pitch, roll, yaw);
+      renderer.render(scene, camera);
+    }
+
+    function onResize() {
+      camera.aspect = W() / H();
+      camera.updateProjectionMatrix();
+      renderer.setSize(W(), H());
+      fitHudCanvas();
+    }
+    window.addEventListener('resize', onResize);
+
+    function cleanup() {
+      running = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('resize', onResize);
+      if (playBeep.ctx) { try { playBeep.ctx.close(); } catch (e) { /* noop */ } }
+      scene.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) { if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose()); else obj.material.dispose(); }
+      });
+      renderer.dispose();
+    }
+    window._oefGameCleanup = cleanup;
+
+    startBtn.addEventListener('click', start);
+    restartBtn.addEventListener('click', start);
+    renderHearts();
+    renderer.render(scene, camera);
+    drawHUD(pitch, roll, yaw);
+  }
+
   const INTERACTIVE_EXERCISES = {
     coordinatie: {
       'enkelvoudige-tracking': playTrackingSingle,
@@ -4132,6 +4778,7 @@
       'keuze-reactietaak': playChoiceReaction,
       'go-no-go': playGoNoGo,
       'dual-task-tracking-rekenen': playDualTask,
+      '3d-vlucht-arcade': play3DFlightArcade,
     },
     'engels-communicatie': {
       'atc-clearance-begrijpen': playScenarioSteps,

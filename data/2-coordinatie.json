@@ -58,6 +58,13 @@
       "description": "Kandidaat houdt een punt bij met de muis terwijl er elke 8 seconden een eenvoudige som verschijnt bovenin beeld. Kandidaat drukt op het juiste antwoord (A of B).",
       "sumIntervalSeconds": 8,
       "scoring": "Trackingnauwkeurigheid + percentage correcte sommen"
+    },
+    {
+      "exerciseId": "3d-vlucht-arcade",
+      "name": "Oefening 7 — 3D vlucht-coördinatie arcade",
+      "description": "Een 3D-vluchtsimulatie: stuur met de muis (hand — pitch/roll) en A/D (voet — yaw) door een reeks ringen, terwijl je met spatie reageert op een willekeurig amber signaal (oog). Moeilijkheid en snelheid lopen op per level; 3 levens.",
+      "controls": { "hand": "muis — pitch/roll", "voet": "A/D-toetsen — yaw", "oog": "spatie bij amber signaal" },
+      "scoring": "Percentage geraakte ringen, gewogen met het bereikte level"
     }
   ]
 }
