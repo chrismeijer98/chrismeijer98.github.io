@@ -11,7 +11,8 @@
   if (!session) return;
 
   qs('#nav-user').textContent = `${session.full_name} · ${session.role === 'coach' ? 'Coach' : 'Piloot'}`;
-  qs('#btn-logout').addEventListener('click', () => {
+  qs('#btn-logout').addEventListener('click', async () => {
+    await HopApi.logoutUser();
     HopSession.clear();
     window.location.href = 'index.html';
   });

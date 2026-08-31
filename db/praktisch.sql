@@ -2,7 +2,9 @@
 -- HOUSE OF PILOTS — PRAKTISCHE ZAKEN (forum + verlofaanvragen)
 -- ============================================================
 -- Voer dit uit in de Supabase SQL-editor (na db/schema.sql).
--- Simpel model: open (anon) toegang, consistent met de rest.
+-- Vereist een ingelogde gebruiker (Supabase Auth) — zie
+-- db/security-lockdown.sql. Nog geen per-gebruiker scoping,
+-- alleen een inlog-gate.
 -- ============================================================
 
 -- ---- 1. FORUM — algemene onderwerpen (vragen aan elkaar, klantpartners, etc.) ----
@@ -41,16 +43,19 @@ create index if not exists practical_posts_thread_idx  on practical_posts(thread
 create index if not exists leave_requests_user_idx     on leave_requests(user_id);
 create index if not exists leave_requests_status_idx   on leave_requests(status);
 
--- ---- ROW LEVEL SECURITY (open, simpel model) ---------------
+-- ---- ROW LEVEL SECURITY (ingelogd, geen open anon-toegang) ---
 alter table practical_threads enable row level security;
 alter table practical_posts   enable row level security;
 alter table leave_requests    enable row level security;
 
 drop policy if exists "anon full access" on practical_threads;
-create policy "anon full access" on practical_threads for all using (true) with check (true);
+drop policy if exists "auth full practical_threads" on practical_threads;
+create policy "auth full practical_threads" on practical_threads for all to authenticated using (true) with check (true);
 
 drop policy if exists "anon full access" on practical_posts;
-create policy "anon full access" on practical_posts for all using (true) with check (true);
+drop policy if exists "auth full practical_posts" on practical_posts;
+create policy "auth full practical_posts" on practical_posts for all to authenticated using (true) with check (true);
 
 drop policy if exists "anon full access" on leave_requests;
-create policy "anon full access" on leave_requests for all using (true) with check (true);
+drop policy if exists "auth full leave_requests" on leave_requests;
+create policy "auth full leave_requests" on leave_requests for all to authenticated using (true) with check (true);

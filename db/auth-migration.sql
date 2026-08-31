@@ -4,6 +4,13 @@
 -- Voer dit uit in de Supabase SQL-editor NA db/schema.sql.
 -- Idempotent: veilig om opnieuw te draaien.
 --
+-- Status: db/schema.sql en de losse feature-bestanden maken hun
+-- policies inmiddels al direct als "authenticated" aan, dus op een
+-- vers project is dit bestand overbodig (maar onschadelijk om alsnog
+-- te draaien). Bewaard voor een bestaand project dat nog op de
+-- oorspronkelijke open anon-policies draait — zie ook de bredere
+-- db/security-lockdown.sql, die dezelfde stap voor ALLE tabellen zet.
+--
 -- Aanpak: de bestaande `users`-tabel blijft het profiel/identiteits-
 -- record van de app (alle foreign keys naar users.id blijven werken).
 -- We koppelen elke gebruiker via users.auth_id aan een Supabase

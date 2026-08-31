@@ -234,7 +234,7 @@
         const rows = await HopApi.listResponses(state.session.code);
         const existing = rows.find((r) => r.is_self);
         if (existing) {
-          await HopApi.patchResponse(existing.id, {
+          await HopApi.patchResponse(existing.id, state.session.code, {
             respondent_name: state.name,
             respondent_role: state.role,
             ratings: state.ratings,

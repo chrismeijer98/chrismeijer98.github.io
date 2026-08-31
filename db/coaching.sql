@@ -2,7 +2,9 @@
 -- HOUSE OF PILOTS — COACHING MODULE
 -- ============================================================
 -- Voer dit uit in de Supabase SQL-editor (na db/schema.sql).
--- Simpel model: open (anon) toegang, consistent met de rest.
+-- Vereist een ingelogde gebruiker (Supabase Auth) — zie
+-- db/security-lockdown.sql. Nog geen per-coach/pilot scoping,
+-- alleen een inlog-gate.
 --
 -- Rolmapping in de app: coach = coach/teamcoach, pilot = deelnemer.
 -- ============================================================
@@ -73,7 +75,7 @@ create index if not exists coaching_notes_relation_idx on coaching_notes(relatio
 create index if not exists coaching_actions_relation_idx on coaching_actions(relation_id);
 create index if not exists coaching_advice_relation_idx on coaching_advice(relation_id);
 
--- ---- ROW LEVEL SECURITY (open, simpel model) ---------------
+-- ---- ROW LEVEL SECURITY (ingelogd, geen open anon-toegang) ---
 alter table coaching_relations enable row level security;
 alter table coaching_sessions  enable row level security;
 alter table coaching_notes     enable row level security;
@@ -81,17 +83,22 @@ alter table coaching_actions   enable row level security;
 alter table coaching_advice    enable row level security;
 
 drop policy if exists "anon full access" on coaching_relations;
-create policy "anon full access" on coaching_relations for all using (true) with check (true);
+drop policy if exists "auth full coaching_relations" on coaching_relations;
+create policy "auth full coaching_relations" on coaching_relations for all to authenticated using (true) with check (true);
 
 drop policy if exists "anon full access" on coaching_sessions;
-create policy "anon full access" on coaching_sessions for all using (true) with check (true);
+drop policy if exists "auth full coaching_sessions" on coaching_sessions;
+create policy "auth full coaching_sessions" on coaching_sessions for all to authenticated using (true) with check (true);
 
 drop policy if exists "anon full access" on coaching_notes;
-create policy "anon full access" on coaching_notes for all using (true) with check (true);
+drop policy if exists "auth full coaching_notes" on coaching_notes;
+create policy "auth full coaching_notes" on coaching_notes for all to authenticated using (true) with check (true);
 
 drop policy if exists "anon full access" on coaching_actions;
-create policy "anon full access" on coaching_actions for all using (true) with check (true);
+drop policy if exists "auth full coaching_actions" on coaching_actions;
+create policy "auth full coaching_actions" on coaching_actions for all to authenticated using (true) with check (true);
 
 drop policy if exists "anon full access" on coaching_advice;
-create policy "anon full access" on coaching_advice for all using (true) with check (true);
+drop policy if exists "auth full coaching_advice" on coaching_advice;
+create policy "auth full coaching_advice" on coaching_advice for all to authenticated using (true) with check (true);
 nu

@@ -2,7 +2,9 @@
 -- HOUSE OF PILOTS — ONTWIKKELASSESSMENT (persoonlijkheid, 6/12 mnd)
 -- ============================================================
 -- Voer dit uit in de Supabase SQL-editor (na db/schema.sql).
--- Zelfde open anon-model als de rest van de app (zie db/praktisch.sql).
+-- Vereist een ingelogde gebruiker (Supabase Auth) — zie
+-- db/security-lockdown.sql. Nog geen per-gebruiker scoping,
+-- alleen een inlog-gate.
 -- ============================================================
 
 -- ---- Programma-startdatum per piloot (coach vult in) --------
@@ -26,4 +28,5 @@ create index if not exists assessment_responses_user_idx on assessment_responses
 
 alter table assessment_responses enable row level security;
 drop policy if exists "anon full access" on assessment_responses;
-create policy "anon full access" on assessment_responses for all using (true) with check (true);
+drop policy if exists "auth full assessment_responses" on assessment_responses;
+create policy "auth full assessment_responses" on assessment_responses for all to authenticated using (true) with check (true);

@@ -2,8 +2,10 @@
 -- HOUSE OF PILOTS — LAB-GROEPEN (groepsomgevingen)
 -- ============================================================
 -- Voer dit uit in de Supabase SQL-editor (na db/schema.sql).
--- Simpel model: open (anon) toegang, consistent met de rest.
--- Bestanden gaan naar de bestaande storage-bucket 'lab-docs'.
+-- Vereist een ingelogde gebruiker (Supabase Auth) — zie
+-- db/security-lockdown.sql. Nog geen per-groep scoping, alleen
+-- een inlog-gate. Bestanden gaan naar de bestaande storage-bucket
+-- 'lab-docs'.
 -- ============================================================
 
 -- ---- 1. GROEPEN --------------------------------------------
@@ -95,7 +97,7 @@ create index if not exists lab_group_posts_thread_idx   on lab_group_posts(threa
 create index if not exists lab_group_minutes_group_idx  on lab_group_minutes(group_id);
 create index if not exists lab_group_messages_group_idx on lab_group_messages(group_id, created_at);
 
--- ---- ROW LEVEL SECURITY (open, simpel model) ---------------
+-- ---- ROW LEVEL SECURITY (ingelogd, geen open anon-toegang) ---
 do $$
 declare t text;
 begin
@@ -105,7 +107,8 @@ begin
   ] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists "anon full access" on %I', t);
-    execute format('create policy "anon full access" on %I for all using (true) with check (true)', t);
+    execute format('drop policy if exists "auth full %s" on %I', t, t);
+    execute format('create policy "auth full %s" on %I for all to authenticated using (true) with check (true)', t, t);
   end loop;
 end $$;
 

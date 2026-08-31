@@ -3,58 +3,87 @@
 // ============================================================
 
 (function () {
+  // Eén gedeelde client (i.p.v. een nieuwe per aanroep) zodat de
+  // Supabase Auth-sessie na inloggen bewaard blijft en wordt
+  // meegestuurd bij vervolgaanroepen (nodig voor RLS + de
+  // admin-users Edge Function, die de sessie verifieert).
+  let _client = null;
   function db() {
-    const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.HOP_CONFIG;
-    return supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    if (!_client) {
+      const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.HOP_CONFIG;
+      _client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    }
+    return _client;
   }
 
   function guard(error) {
     if (error) throw error;
   }
 
-  async function hashPassword(password) {
-    const data = new TextEncoder().encode(password);
-    const buf  = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  // Moet identiek zijn aan loginSlug()/loginEmail() in
+  // supabase/functions/admin-users/index.ts.
+  function loginSlug(name) {
+    return (name || '')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '');
+  }
+  const AUTH_EMAIL_DOMAIN = 'hop.local';
+  function loginEmail(name) {
+    return `${loginSlug(name)}@${AUTH_EMAIL_DOMAIN}`;
+  }
+
+  // supabase-js stopt een JSON-foutmelding van een Edge Function niet
+  // in `data`, maar in `error.context` (de Response) — hier uitgepakt
+  // zodat callers gewoon err.message kunnen tonen.
+  async function invokeAdmin(action, payload) {
+    const { data, error } = await db().functions.invoke('admin-users', {
+      body: { action, ...payload },
+    });
+    if (error) {
+      let message = error.message || 'Serverfout';
+      try {
+        const body = await error.context?.json();
+        if (body?.error) message = body.error;
+      } catch { /* geen JSON-body, val terug op error.message */ }
+      throw new Error(message);
+    }
+    if (data?.error) throw new Error(data.error);
+    return data;
   }
 
   const api = {
     // ---- Auth ----
+    // Echte Supabase Auth-login (i.p.v. een client-side check tegen
+    // de open users-tabel) — zie db/security-lockdown.sql.
     async loginUser({ full_name, password }) {
-      const hash = await hashPassword(password);
-      const { data, error } = await db()
+      const email = loginEmail(full_name);
+      const { data, error } = await db().auth.signInWithPassword({ email, password });
+      if (error) throw new Error('Naam of wachtwoord onjuist');
+
+      const { data: profile, error: pErr } = await db()
         .from('users')
-        .select('*')
-        .ilike('full_name', full_name)
-        .eq('password_hash', hash)
+        .select('id, full_name, role')
+        .eq('auth_id', data.user.id)
         .maybeSingle();
-      guard(error);
-      if (!data) throw new Error('Naam of wachtwoord onjuist');
-      return data;
+      guard(pErr);
+      if (!profile) throw new Error('Geen profiel gekoppeld aan dit account');
+      return profile;
+    },
+
+    async logoutUser() {
+      await db().auth.signOut();
     },
 
     // ---- User management (admin) ----
+    // Loopt via de admin-users Edge Function (service-role): die
+    // controleert zelf dat de aanroeper is ingelogd én coach is.
     async createUser({ full_name, role, password }) {
-      const hash = await hashPassword(password);
-      const { data, error } = await db()
-        .from('users')
-        .insert({ full_name, role, password_hash: hash })
-        .select()
-        .single();
-      guard(error);
-      return data;
+      const data = await invokeAdmin('create', { full_name, role, password });
+      return data.user;
     },
 
     async updatePassword({ user_id, password }) {
-      const hash = await hashPassword(password);
-      const { data, error } = await db()
-        .from('users')
-        .update({ password_hash: hash, updated_at: new Date().toISOString() })
-        .eq('id', user_id)
-        .select()
-        .single();
-      guard(error);
-      return data;
+      return invokeAdmin('set_password', { user_id, password });
     },
 
     async listUsers() {
@@ -67,8 +96,7 @@
     },
 
     async deleteUser(id) {
-      const { error } = await db().from('users').delete().eq('id', id);
-      guard(error);
+      await invokeAdmin('delete', { user_id: id });
     },
 
     // ---- Feedback sessions ----
@@ -82,11 +110,12 @@
       return data;
     },
 
+    // Loopt via een DB-functie i.p.v. een directe tabel-select: die
+    // vereist de exacte code als parameter, zodat je zonder code geen
+    // sessies kunt opsommen (zie db/feedback-lockdown.sql).
     async getSession(code) {
       const { data, error } = await db()
-        .from('feedback_sessions')
-        .select('*')
-        .eq('code', code)
+        .rpc('fb_get_session', { p_code: code })
         .maybeSingle();
       guard(error);
       return data;
@@ -110,47 +139,38 @@
     },
 
     // ---- Feedback responses ----
+    // Ook deze lopen via DB-functies (security definer) i.p.v. directe
+    // tabeltoegang: feedback_responses heeft geen enkele client-policy
+    // meer, precies omdat "wie de code kent" hier de enige, bewuste
+    // toegangsgrens is — niet inloggen. Zie db/feedback-lockdown.sql.
     async listResponses(code) {
-      const { data, error } = await db()
-        .from('feedback_responses')
-        .select('*')
-        .eq('session_code', code);
+      const { data, error } = await db().rpc('fb_list_responses', { p_code: code });
       guard(error);
       return data;
     },
 
     async postResponse(row) {
-      const client = db();
-      const insert = {
-        session_code:    row.session_code,
-        respondent_name: row.respondent_name,
-        respondent_role: row.respondent_role || null,
-        is_self:         !!row.is_self,
-        ratings:         row.ratings || {},
-        notes:           row.notes || {},
-      };
-      if (insert.is_self) {
-        await client.from('feedback_responses')
-          .delete()
-          .eq('session_code', insert.session_code)
-          .eq('is_self', true);
-      }
-      const { data, error } = await client
-        .from('feedback_responses')
-        .insert(insert)
-        .select()
-        .single();
+      const { data, error } = await db().rpc('fb_submit_response', {
+        p_session_code:    row.session_code,
+        p_respondent_name: row.respondent_name,
+        p_respondent_role: row.respondent_role || null,
+        p_is_self:         !!row.is_self,
+        p_ratings:         row.ratings || {},
+        p_notes:           row.notes || {},
+      });
       guard(error);
       return data;
     },
 
-    async patchResponse(id, patch) {
-      const { data, error } = await db()
-        .from('feedback_responses')
-        .update(patch)
-        .eq('id', id)
-        .select()
-        .single();
+    async patchResponse(id, session_code, patch) {
+      const { data, error } = await db().rpc('fb_update_response', {
+        p_id:              id,
+        p_session_code:    session_code,
+        p_respondent_name: patch.respondent_name ?? null,
+        p_respondent_role: patch.respondent_role ?? null,
+        p_ratings:         patch.ratings ?? null,
+        p_notes:           patch.notes ?? null,
+      });
       guard(error);
       return data;
     },

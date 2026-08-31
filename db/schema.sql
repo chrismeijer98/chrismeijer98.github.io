@@ -95,58 +95,80 @@ create index if not exists lab_assignments_project_id_idx on lab_assignments(pro
 create index if not exists lab_assignment_members_user_id_idx on lab_assignment_members(user_id);
 
 -- ---- ROW LEVEL SECURITY ------------------------------------
--- De site gebruikt de publieke anon-sleutel (geen login).
--- Deze policies geven de anonieme rol volledige lees-/schrijftoegang.
+-- Ingelogde gebruikers (Supabase Auth) mogen lezen/schrijven; anon
+-- (niet ingelogd) heeft nergens toegang, behalve de expliciet
+-- code-based feedbackflow hieronder. Zie db/security-lockdown.sql
+-- + db/auth-migration.sql voor de auth_id/app_uid()/app_role()
+-- helpers die dit dragen, en js/api.js voor de echte
+-- supabase.auth.signInWithPassword()-login.
 alter table users enable row level security;
 alter table feedback_sessions enable row level security;
 alter table feedback_responses enable row level security;
 alter table pcp_scores enable row level security;
 
-create policy "anon full access" on users
-  for all to anon using (true) with check (true);
+-- users: lezen mag als je ingelogd bent; schrijven loopt via de
+-- admin-users Edge Function (service-role, met een eigen coach-check).
+drop policy if exists "anon full access" on users;
+drop policy if exists "auth read users" on users;
+create policy "auth read users" on users
+  for select to authenticated using (true);
 
-create policy "anon full access" on feedback_sessions
-  for all to anon using (true) with check (true);
+-- feedback_sessions: eigenaar (ingelogd) beheert eigen sessies direct.
+-- Externe 360-feedbackgevers loggen NIET in — die krijgen toegang via
+-- de code-scoped functies in db/feedback-lockdown.sql (fb_get_session
+-- e.a.), niet via een anon-policy op de tabel zelf. Zonder die functies
+-- draaien (fresh install) is er dus GEEN anon-toegang tot deze twee
+-- tabellen — draai feedback-lockdown.sql voor de feedbackflow werkt.
+create policy "auth full feedback_sessions" on feedback_sessions
+  for all to authenticated using (true) with check (true);
+-- feedback_responses krijgt bewust geen policy: alle toegang loopt via
+-- de security-definer functies in db/feedback-lockdown.sql.
 
-create policy "anon full access" on feedback_responses
-  for all to anon using (true) with check (true);
-
-create policy "anon full access" on pcp_scores
-  for all to anon using (true) with check (true);
+drop policy if exists "anon full access" on pcp_scores;
+drop policy if exists "auth full pcp_scores" on pcp_scores;
+create policy "auth full pcp_scores" on pcp_scores
+  for all to authenticated using (true) with check (true);
 
 alter table lab_assignments enable row level security;
 alter table lab_assignment_members enable row level security;
 
 -- drop-if-exists maakt dit blok veilig om opnieuw te draaien
 drop policy if exists "anon full access" on lab_assignments;
-create policy "anon full access" on lab_assignments
-  for all to anon using (true) with check (true);
+drop policy if exists "auth full lab_assignments" on lab_assignments;
+create policy "auth full lab_assignments" on lab_assignments
+  for all to authenticated using (true) with check (true);
 
 drop policy if exists "anon full access" on lab_assignment_members;
-create policy "anon full access" on lab_assignment_members
-  for all to anon using (true) with check (true);
+drop policy if exists "auth full lab_assignment_members" on lab_assignment_members;
+create policy "auth full lab_assignment_members" on lab_assignment_members
+  for all to authenticated using (true) with check (true);
 
 -- ============================================================
 -- STORAGE: bucket voor Lab-documenten (.docx)
 -- ============================================================
--- Maakt een publieke bucket 'lab-docs' aan en geeft de anon-rol
--- upload-/lees-/verwijderrechten (consistent met de rest van de app).
+-- Maakt een publieke bucket 'lab-docs' aan en geeft ingelogde
+-- gebruikers upload-/lees-/verwijderrechten.
 insert into storage.buckets (id, name, public)
 values ('lab-docs', 'lab-docs', true)
 on conflict (id) do nothing;
 
-drop policy if exists "lab-docs anon read" on storage.objects;
-create policy "lab-docs anon read" on storage.objects
-  for select to anon using (bucket_id = 'lab-docs');
-
+drop policy if exists "lab-docs anon read"   on storage.objects;
 drop policy if exists "lab-docs anon insert" on storage.objects;
-create policy "lab-docs anon insert" on storage.objects
-  for insert to anon with check (bucket_id = 'lab-docs');
-
 drop policy if exists "lab-docs anon update" on storage.objects;
-create policy "lab-docs anon update" on storage.objects
-  for update to anon using (bucket_id = 'lab-docs') with check (bucket_id = 'lab-docs');
-
 drop policy if exists "lab-docs anon delete" on storage.objects;
-create policy "lab-docs anon delete" on storage.objects
-  for delete to anon using (bucket_id = 'lab-docs');
+
+drop policy if exists "lab-docs auth read" on storage.objects;
+create policy "lab-docs auth read" on storage.objects
+  for select to authenticated using (bucket_id = 'lab-docs');
+
+drop policy if exists "lab-docs auth insert" on storage.objects;
+create policy "lab-docs auth insert" on storage.objects
+  for insert to authenticated with check (bucket_id = 'lab-docs');
+
+drop policy if exists "lab-docs auth update" on storage.objects;
+create policy "lab-docs auth update" on storage.objects
+  for update to authenticated using (bucket_id = 'lab-docs') with check (bucket_id = 'lab-docs');
+
+drop policy if exists "lab-docs auth delete" on storage.objects;
+create policy "lab-docs auth delete" on storage.objects
+  for delete to authenticated using (bucket_id = 'lab-docs');

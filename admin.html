@@ -60,14 +60,14 @@
 
     <form id="admin-login-form">
       <div class="field">
-        <label class="field-label">Gebruikersnaam</label>
-        <input id="a-user" class="input" placeholder="admin" autocomplete="username" required>
+        <label class="field-label">Naam</label>
+        <input id="a-user" class="input" placeholder="bv. Naam" autocomplete="username" required>
       </div>
       <div class="field">
         <label class="field-label">Wachtwoord</label>
         <input id="a-pass" class="input" type="password" placeholder="••••••••" autocomplete="current-password" required>
       </div>
-      <p class="err-msg" id="login-err">Gebruikersnaam of wachtwoord onjuist.</p>
+      <p class="err-msg" id="login-err">Naam of wachtwoord onjuist, of geen coach-account.</p>
       <button type="submit" class="btn btn-primary btn-lg" style="width:100%;justify-content:center;margin-top:8px">
         Inloggen
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
@@ -182,13 +182,19 @@
 <script src="js/utils.js"></script>
 <script>
 (function () {
-  const ADMIN_USER = 'admin';
-  const ADMIN_PASS = 'admin';
-  const SESSION_KEY = 'hop_admin_session';
-
-  const isLoggedIn = () => localStorage.getItem(SESSION_KEY) === '1';
-  const adminLogin  = () => localStorage.setItem(SESSION_KEY, '1');
-  const adminLogout = () => { localStorage.removeItem(SESSION_KEY); showLogin(); };
+  // Echte login (Supabase Auth) i.p.v. het vroegere hardcoded
+  // admin/admin-wachtwoord dat puur client-side werd gecheckt.
+  // De écht bindende check zit in de admin-users Edge Function
+  // (die role='coach' server-side afdwingt) — dit is alleen de UI-gate.
+  const isLoggedIn = () => {
+    const s = HopSession.get();
+    return !!s && s.role === 'coach';
+  };
+  const adminLogout = async () => {
+    await HopApi.logoutUser();
+    HopSession.clear();
+    showLogin();
+  };
 
   function showLogin() {
     document.getElementById('view-login').style.cssText = 'display:flex';
@@ -203,17 +209,29 @@
   }
 
   // ---- Login ----
-  document.getElementById('admin-login-form').addEventListener('submit', (e) => {
+  document.getElementById('admin-login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const u   = document.getElementById('a-user').value.trim();
-    const p   = document.getElementById('a-pass').value;
-    const err = document.getElementById('login-err');
-    if (u === ADMIN_USER && p === ADMIN_PASS) {
-      err.style.display = 'none';
-      adminLogin();
+    const name = document.getElementById('a-user').value.trim();
+    const pass = document.getElementById('a-pass').value;
+    const err  = document.getElementById('login-err');
+    err.style.display = 'none';
+
+    const btn  = e.target.querySelector('button[type=submit]');
+    const orig = btn.innerHTML;
+    btn.disabled = true; btn.textContent = 'Even geduld…';
+
+    try {
+      const user = await HopApi.loginUser({ full_name: name, password: pass });
+      if (user.role !== 'coach') {
+        await HopApi.logoutUser();
+        throw new Error('Geen coach-account');
+      }
+      HopSession.set({ user_id: user.id, full_name: user.full_name, role: user.role });
       showDashboard();
-    } else {
+    } catch (ex) {
       err.style.display = 'block';
+    } finally {
+      btn.disabled = false; btn.innerHTML = orig;
     }
   });
 

@@ -2,7 +2,9 @@
 -- HOUSE OF PILOTS — OEFENINGEN (individueel oefenplatform)
 -- ============================================================
 -- Voer dit uit in de Supabase SQL-editor (na db/schema.sql).
--- Simpel model: open (anon) toegang, consistent met de rest.
+-- Vereist een ingelogde gebruiker (Supabase Auth) — zie
+-- db/security-lockdown.sql. Nog geen per-gebruiker scoping,
+-- alleen een inlog-gate.
 --
 -- candidate = pilot; category_id/type_id verwijzen naar de
 -- catalogus in js/data.js + js/oefendata.js.
@@ -33,12 +35,14 @@ create index if not exists exercise_unlocks_candidate_idx on exercise_unlocks(ca
 create index if not exists exercise_scores_candidate_idx on exercise_scores(candidate_id);
 create index if not exists exercise_scores_cat_idx on exercise_scores(candidate_id, category_id);
 
--- ---- ROW LEVEL SECURITY (open, simpel model) ---------------
+-- ---- ROW LEVEL SECURITY (ingelogd, geen open anon-toegang) ---
 alter table exercise_unlocks enable row level security;
 alter table exercise_scores  enable row level security;
 
 drop policy if exists "anon full access" on exercise_unlocks;
-create policy "anon full access" on exercise_unlocks for all using (true) with check (true);
+drop policy if exists "auth full exercise_unlocks" on exercise_unlocks;
+create policy "auth full exercise_unlocks" on exercise_unlocks for all to authenticated using (true) with check (true);
 
 drop policy if exists "anon full access" on exercise_scores;
-create policy "anon full access" on exercise_scores for all using (true) with check (true);
+drop policy if exists "auth full exercise_scores" on exercise_scores;
+create policy "auth full exercise_scores" on exercise_scores for all to authenticated using (true) with check (true);

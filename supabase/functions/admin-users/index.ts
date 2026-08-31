@@ -2,8 +2,13 @@
 // HOUSE OF PILOTS — Edge Function: admin-users
 // ============================================================
 // Beheert gebruikers met de service-role (server-side). Wordt
-// aangeroepen vanuit admin.html. Beveiligd met een gedeeld
-// beheer-token (env ADMIN_TOKEN) via de header 'x-admin-token'.
+// aangeroepen vanuit admin.html via HopApi (supabase.functions.invoke,
+// die de ingelogde sessie automatisch als Bearer-token meestuurt).
+//
+// Beveiliging: de aanroeper moet een geldige, ingelogde Supabase
+// Auth-sessie hebben ÉN in de users-tabel role = 'coach' staan (zie
+// de auth-check direct onderin Deno.serve). Geen gedeeld statisch
+// token meer — dat zou alsnog in de publieke site-broncode staan.
 //
 // Acties (JSON body { action, ... }):
 //   list                                  -> alle gebruikers
@@ -13,7 +18,6 @@
 //
 // Deploy (eenmalig, vereist Supabase CLI):
 //   supabase functions deploy admin-users --no-verify-jwt
-//   supabase secrets set ADMIN_TOKEN="<kies-een-sterk-token>"
 //   supabase secrets set AUTH_EMAIL_DOMAIN="hop.local"   (optioneel)
 // SUPABASE_URL en SUPABASE_SERVICE_ROLE_KEY zijn automatisch beschikbaar.
 // ============================================================
@@ -22,7 +26,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-admin-token",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -49,16 +53,23 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  // ---- token-check ----
-  const token = req.headers.get("x-admin-token");
-  const expected = Deno.env.get("ADMIN_TOKEN");
-  if (!expected || token !== expected) return json({ error: "Niet geautoriseerd" }, 401);
-
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
+
+  // ---- auth-check: aanroeper moet ingelogd + coach zijn ----
+  const authHeader = req.headers.get("authorization") || "";
+  const jwt = authHeader.replace(/^Bearer\s+/i, "");
+  if (!jwt) return json({ error: "Niet geautoriseerd" }, 401);
+
+  const { data: authData, error: authErr } = await admin.auth.getUser(jwt);
+  if (authErr || !authData?.user) return json({ error: "Niet geautoriseerd" }, 401);
+
+  const { data: caller } = await admin
+    .from("users").select("role").eq("auth_id", authData.user.id).maybeSingle();
+  if (caller?.role !== "coach") return json({ error: "Alleen coaches mogen dit" }, 403);
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "Ongeldige body" }, 400); }

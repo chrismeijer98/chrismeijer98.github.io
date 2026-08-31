@@ -2,7 +2,9 @@
 -- HOUSE OF PILOTS — AGENDA & EVENTS
 -- ============================================================
 -- Voer dit uit in de Supabase SQL-editor (na db/schema.sql).
--- Simpel model: open (anon) toegang, consistent met de rest.
+-- Vereist een ingelogde gebruiker (Supabase Auth) — zie
+-- db/security-lockdown.sql. Nog geen per-gebruiker scoping,
+-- alleen een inlog-gate.
 --
 -- category verwijst naar EVENT_CATEGORIES in js/data.js.
 -- ============================================================
@@ -38,12 +40,14 @@ create index if not exists events_starts_at_idx on events(starts_at);
 create index if not exists event_signups_event_idx on event_signups(event_id);
 create index if not exists event_signups_user_idx on event_signups(user_id);
 
--- ---- ROW LEVEL SECURITY (open, simpel model) ---------------
+-- ---- ROW LEVEL SECURITY (ingelogd, geen open anon-toegang) ---
 alter table events        enable row level security;
 alter table event_signups enable row level security;
 
 drop policy if exists "anon full access" on events;
-create policy "anon full access" on events for all using (true) with check (true);
+drop policy if exists "auth full events" on events;
+create policy "auth full events" on events for all to authenticated using (true) with check (true);
 
 drop policy if exists "anon full access" on event_signups;
-create policy "anon full access" on event_signups for all using (true) with check (true);
+drop policy if exists "auth full event_signups" on event_signups;
+create policy "auth full event_signups" on event_signups for all to authenticated using (true) with check (true);
