@@ -390,12 +390,17 @@
       return withMembers;
     },
 
-    documentUrl(path, downloadName) {
+    // De 'lab-docs' bucket is privé (zie db/storage-lockdown.sql) —
+    // dit vraagt een tijdelijke, ondertekende link i.p.v. een
+    // permanente publieke URL. Alleen mogelijk als je (via RLS) bij
+    // dit bestand mag; anders komt er null terug.
+    async documentUrl(path, downloadName) {
       if (!path) return null;
-      const { data } = db().storage
+      const { data, error } = await db().storage
         .from('lab-docs')
-        .getPublicUrl(path, downloadName ? { download: downloadName } : undefined);
-      return data?.publicUrl || null;
+        .createSignedUrl(path, 300, downloadName ? { download: downloadName } : undefined);
+      if (error) return null;
+      return data?.signedUrl || null;
     },
 
     // Pilot dient het huidige document in → wacht op controle coach

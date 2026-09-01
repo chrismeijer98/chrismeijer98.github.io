@@ -292,7 +292,7 @@
       return;
     }
     const p = labProject(a.project_id);
-    let docUrl = a.document_path ? HopApi.documentUrl(a.document_path, a.document_name) : null;
+    let docUrl = a.document_path ? await HopApi.documentUrl(a.document_path, a.document_name) : null;
 
     main.innerHTML = `<div class="fade-up">
       <a href="#lab" class="back-link">${ICONS.chevLeft} Terug naar Lab</a>
@@ -362,7 +362,7 @@
         qs('#lab-file-name').textContent = 'Uploaden…';
         try {
           a = await HopApi.uploadAssignmentDocument(a.id, file, session.user_id);
-          docUrl = HopApi.documentUrl(a.document_path, a.document_name);
+          docUrl = await HopApi.documentUrl(a.document_path, a.document_name);
           toast('Document geüpload', 'success');
           renderPilotDoc();
         } catch (e) {
@@ -480,7 +480,7 @@
     try { a = await HopApi.getAssignment(id); } catch (e) { console.warn(e); }
     if (!a) { main.innerHTML = `<div class="card" style="color:var(--danger)">Opdracht niet gevonden. <a href="#lab">Terug</a></div>`; return; }
     const p = labProject(a.project_id);
-    const docUrl = a.document_path ? HopApi.documentUrl(a.document_path, a.document_name) : null;
+    const docUrl = a.document_path ? await HopApi.documentUrl(a.document_path, a.document_name) : null;
 
     main.innerHTML = `<div class="fade-up">
       <a href="#lab" class="back-link">${ICONS.chevLeft} Terug naar Lab</a>
@@ -2386,8 +2386,9 @@
     let files = []; try { files = await HopApi.listGroupFiles(ctx.id); } catch (e) { /* noop */ }
     const list = qs('#g-file-list');
     if (!files.length) { list.innerHTML = `<div style="font-size:13px;color:var(--muted)">Nog geen bestanden gedeeld.</div>`; return; }
-    list.innerHTML = files.map((f) => {
-      const url = HopApi.documentUrl(f.path, f.name);
+    const urls = await Promise.all(files.map((f) => HopApi.documentUrl(f.path, f.name)));
+    list.innerHTML = files.map((f, i) => {
+      const url = urls[i];
       return `<div class="lab-doc-row" style="margin-bottom:8px">
         ${ICONS.fileText}
         <div style="flex:1;min-width:0">

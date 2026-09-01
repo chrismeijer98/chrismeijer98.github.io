@@ -16,18 +16,24 @@
 //   set_password { user_id, password }    -> wachtwoord wijzigen
 //   delete   { user_id }                  -> verwijdert account
 //
-// Deploy (eenmalig, vereist Supabase CLI):
+// Deploy (eenmalig, vereist Supabase CLI, of plak de code in de
+// Supabase-dashboard Edge Function-editor en klik Deploy):
 //   supabase functions deploy admin-users --no-verify-jwt
 //   supabase secrets set AUTH_EMAIL_DOMAIN="hop.local"   (optioneel)
+//   supabase secrets set SITE_ORIGIN="https://chrismeijer98.github.io"  (optioneel, heeft al deze default)
 // SUPABASE_URL en SUPABASE_SERVICE_ROLE_KEY zijn automatisch beschikbaar.
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Alleen de eigen site mag deze functie vanuit de browser aanroepen
+// (was "*" — elke willekeurige website kon 'm anders ook aanroepen).
+const ALLOWED_ORIGIN = Deno.env.get("SITE_ORIGIN") || "https://chrismeijer98.github.io";
 const CORS = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Vary": "Origin",
 };
 
 function json(body: unknown, status = 200) {
