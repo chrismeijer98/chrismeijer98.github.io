@@ -1,14 +1,14 @@
 // ============================================================
-// HOUSE OF PILOTS — Edge Function: admin-users
+// HOUSE OF PILOTS -- Edge Function: admin-users
 // ============================================================
 // Beheert gebruikers met de service-role (server-side). Wordt
 // aangeroepen vanuit admin.html via HopApi (supabase.functions.invoke,
 // die de ingelogde sessie automatisch als Bearer-token meestuurt).
 //
 // Beveiliging: de aanroeper moet een geldige, ingelogde Supabase
-// Auth-sessie hebben ÉN in de users-tabel role = 'coach' staan (zie
+// Auth-sessie hebben EN in de users-tabel role = 'coach' staan (zie
 // de auth-check direct onderin Deno.serve). Geen gedeeld statisch
-// token meer — dat zou alsnog in de publieke site-broncode staan.
+// token meer -- dat zou alsnog in de publieke site-broncode staan.
 //
 // Acties (JSON body { action, ... }):
 //   list                                  -> alle gebruikers
@@ -27,7 +27,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // Alleen de eigen site mag deze functie vanuit de browser aanroepen
-// (was "*" — elke willekeurige website kon 'm anders ook aanroepen).
+// (was "*" -- elke willekeurige website kon 'm anders ook aanroepen).
 const ALLOWED_ORIGIN = Deno.env.get("SITE_ORIGIN") || "https://chrismeijer98.github.io";
 const CORS = {
   "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
@@ -46,7 +46,7 @@ function json(body: unknown, status = 200) {
 // Moet identiek zijn aan loginSlug() in js/api.js
 function loginSlug(name: string): string {
   return (name || "")
-    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .normalize("NFD").replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
     .toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
         const { error } = await admin.auth.admin.updateUserById(u.auth_id, { password });
         if (error) throw error;
       } else {
-        // Nog geen Auth-account → maak er nu één en koppel
+        // Nog geen Auth-account -> maak er nu een aan en koppel
         const email = loginEmail(u.full_name);
         const { data: created, error: cErr } = await admin.auth.admin.createUser({
           email, password, email_confirm: true,
